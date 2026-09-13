@@ -1,7 +1,11 @@
 # 惩罚游戏
 
+**在线玩：https://joewang911.github.io/punish-game/**
+
+手机浏览器打开就能玩，可以添加到主屏幕。不用装东西，不用挂梯子。
+
 一个情侣惩罚游戏。开盲盒抽卡，输了就做，做不到就付代价。
-纯前端，没有后端，没有依赖，双击 `index.html` 就能玩。
+纯前端，没有后端，没有依赖，也可以下下来双击 `index.html` 离线玩。
 
 ## 玩法
 
@@ -64,9 +68,18 @@
 ## 本地跑测试
 
 ```bash
-node _smoke/cards.test.cjs     # 卡池体检，零依赖
+node _smoke/cards.test.cjs     # 卡池体检，零依赖（23 项）
 npm install jsdom --prefix _smoke
 node _smoke/test.cjs           # 用 jsdom 真打一局（80 项）
+node _smoke/live.test.cjs      # 对线上地址真打一局（16 项）
+```
+
+## 部署
+
+推 `main` 分支就自动更新，GitHub Pages 从仓库根目录发布。
+
+```bash
+git add -A && git commit -m "改了啥" && git push
 ```
 
 ## 存档
