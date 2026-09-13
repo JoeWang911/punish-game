@@ -284,6 +284,31 @@ input[type=text]:focus{border-color:var(--rose)}
 .dice .win{border-color:#3f7a4f}
 .dice-say{min-height:26px;margin:0 0 18px;text-align:center;font-size:16px;font-weight:700;color:var(--rose)}
 
+/* ─────────── 老虎机：动作 × 部位 ─────────── */
+.slot{display:grid;gap:10px;margin-bottom:20px}
+.reel{
+  height:86px;display:flex;align-items:center;justify-content:center;
+  border-radius:15px;background:#180d17;border:1px solid var(--line);
+  overflow:hidden;position:relative;
+}
+.reel span{font-size:27px;font-weight:800;letter-spacing:.04em;color:var(--txt)}
+.reel.rolling{border-color:var(--rose)}
+.reel.rolling span{color:var(--dim);filter:blur(.4px)}
+.reel.landed{border-color:var(--rose);animation:landed .38s ease}
+@keyframes landed{0%{transform:scale(1)}38%{transform:scale(1.06)}100%{transform:scale(1)}}
+.reel::before,.reel::after{
+  content:"";position:absolute;left:0;right:0;height:18px;pointer-events:none;
+}
+.reel::before{top:0;background:linear-gradient(#1b0f1a,transparent)}
+.reel::after{bottom:0;background:linear-gradient(transparent,#1b0f1a)}
+.btn.full{width:100%}
+.slot-say{
+  min-height:30px;margin:0 0 18px;text-align:center;
+  font-size:16px;font-weight:700;color:var(--gold);line-height:1.5;
+}
+.slot-say b{color:var(--rose)}
+.slot-note{margin:16px 0 0;text-align:center;color:var(--dim2);font-size:11.5px;letter-spacing:.04em}
+
 /* ─────────── 计时 ─────────── */
 .timer{position:fixed;inset:0;z-index:95;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:18px;background:rgba(8,3,7,.93)}

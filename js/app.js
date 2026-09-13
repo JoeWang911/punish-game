@@ -662,11 +662,116 @@
     h += '<button data-t="dare"><em>🎯</em>大冒险</button>';
     h += '<button data-t="punish"><em>⚡</em>惩罚</button>';
     h += '<button data-t="duo"><em>💞</em>一起做</button>';
+    h += '<button data-slot="1"><em>🎰</em>动作 × 部位<s>两个转轮自己转</s></button>';
     h += '</div>';
     sheet(h);
     $$('#ov-body [data-t]').forEach(function (b) {
       b.onclick = function () { shut(); setTimeout(function () { deal(b.dataset.t); }, 200); };
     });
+    var s = $('#ov-body [data-slot]');
+    if (s) s.onclick = openSlot;
+  }
+
+  /* ── 老虎机：动作 × 部位 ── */
+  function slotList(kind) {
+    var src = window.SLOT[kind];
+    var list = src.filter(function (it) {
+      if (it.lv > S.max) return false;
+      for (var i = 0; i < (it.g || []).length; i++) if (S.blocked.indexOf(it.g[i]) >= 0) return false;
+      return true;
+    });
+    if (!list.length) list = src.filter(function (it) { return it.lv <= S.max; });
+    if (!list.length) list = src;
+    return list;
+  }
+
+  function openSlot() {
+    var na = slotList('act').length, np = slotList('part').length;
+    var h = '<h3 class="ov-h">动作 × 部位</h3>';
+    h += '<p class="ov-p">两个转轮分开转。上面出动作，下面出部位，合起来就是你这张卡。</p>';
+    h += '<div class="slot">';
+    h += '<div class="reel" id="reel-act"><span>？？</span></div>';
+    h += '<button class="btn primary sm full" id="spin-act">转动作</button>';
+    h += '<div class="reel" id="reel-part"><span>？？</span></div>';
+    h += '<button class="btn primary sm full" id="spin-part">转部位</button>';
+    h += '</div>';
+    h += '<p class="slot-say" id="slot-say">两个都转完就出结果</p>';
+    h += '<button class="btn primary hide" id="slot-done">做了，下一张</button>';
+    h += '<button class="btn ghost hide" id="slot-again">两个重转</button>';
+    h += '<p class="slot-note">当前尺度下：' + na + ' 个动作 × ' + np + ' 个部位 = ' + (na * np) + ' 种组合</p>';
+    sheet(h);
+
+    var got = { act: null, part: null };
+    var spinning = { act: false, part: false };
+
+    function render() {
+      if (got.act && got.part) {
+        $('#slot-say').innerHTML = '<b>' + esc(selfN()) + '</b>　' + esc(got.act)
+          + '　<b>' + esc(otherN()) + '</b>的' + esc(got.part);
+        $('#slot-done').classList.remove('hide');
+        $('#slot-again').classList.remove('hide');
+        chord([659, 880]);
+        buzz(40);
+      } else if (got.act || got.part) {
+        $('#slot-say').textContent = got.act ? '还要转部位' : '还要转动作';
+      }
+    }
+
+    function spin(which) {
+      if (spinning[which]) return;
+      var list = slotList(which === 'act' ? 'act' : 'part');
+      var final = pick(list);
+      var el = $('#reel-' + which);
+      var btn = $('#spin-' + which);
+      spinning[which] = true;
+      btn.disabled = true;
+      el.classList.add('rolling');
+      $('#slot-done').classList.add('hide');
+      $('#slot-again').classList.add('hide');
+
+      var t = 0, delay = 45;
+      var total = 1150 + rnd(450);
+      (function step() {
+        el.querySelector('span').textContent = pick(list).x;
+        beep(1400, 0.012, 'square');
+        t += delay;
+        if (t < total * 0.55) delay = 45;
+        else if (t < total * 0.8) delay = 95;
+        else delay = 165;
+        if (t < total) { setTimeout(step, delay); return; }
+        el.querySelector('span').textContent = final.x;
+        el.classList.remove('rolling');
+        el.classList.add('landed');
+        setTimeout(function () { el.classList.remove('landed'); }, 400);
+        got[which] = final.x;
+        spinning[which] = false;
+        btn.disabled = false;
+        beep(880, 0.12, 'triangle');
+        render();
+      })();
+    }
+
+    $('#spin-act').onclick = function () { spin('act'); };
+    $('#spin-part').onclick = function () { spin('part'); };
+    $('#slot-again').onclick = function () {
+      got.act = null; got.part = null;
+      $('#reel-act').querySelector('span').textContent = '？？';
+      $('#reel-part').querySelector('span').textContent = '？？';
+      $('#slot-say').textContent = '两个都转完就出结果';
+      $('#slot-done').classList.add('hide');
+      $('#slot-again').classList.add('hide');
+    };
+    $('#slot-done').onclick = function () {
+      var text = '{self} ' + got.act + ' {other} 的' + got.part;
+      log({ lvl: S.max, t: 'dare', x: text }, 'done');
+      S.score[S.turn]++;
+      S.heat++;
+      S.mult = 1;
+      save(); shut(); hud();
+      toast('热度 +1');
+      bumpHeat();
+      next();
+    };
   }
 
   function resetMenu() {

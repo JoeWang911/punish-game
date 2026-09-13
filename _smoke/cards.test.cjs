@@ -125,6 +125,29 @@ try {
 } catch (e) { crash2 = e.message; }
 check('牌抽光时会自动洗牌重来', crash2 === null, crash2);
 
+console.log('\n── 老虎机数据（动作 × 部位）──');
+const SLOT = win.SLOT;
+check('SLOT 存在且有 act / part', !!SLOT && Array.isArray(SLOT.act) && Array.isArray(SLOT.part));
+const slotBad = [];
+['act', 'part'].forEach(k => {
+  SLOT[k].forEach((it, i) => {
+    if (typeof it.x !== 'string' || !it.x.trim()) slotBad.push(k + '[' + i + '] 文案为空');
+    if (typeof it.lv !== 'number' || it.lv < 1 || it.lv > 4) slotBad.push(k + '[' + i + '] 等级非法: ' + it.lv);
+    (it.g || []).forEach(g => { if (TAGS.indexOf(g) < 0) slotBad.push(k + '[' + i + '] 未登记标签 ' + g); });
+  });
+});
+check('老虎机条目字段都合法', slotBad.length === 0, slotBad.slice(0, 3).join(' ; '));
+check('动作无重复', new Set(SLOT.act.map(a => a.x)).size === SLOT.act.length);
+check('部位无重复', new Set(SLOT.part.map(p => p.x)).size === SLOT.part.length);
+[1, 2, 3, 4].forEach(lv => {
+  const a = SLOT.act.filter(x => x.lv <= lv).length;
+  const p = SLOT.part.filter(x => x.lv <= lv).length;
+  check('Lv' + lv + ' 尺度下组合够多（' + a + '×' + p + '=' + a * p + '）', a * p >= 40);
+});
+check('Lv1 动作与部位都够多样', SLOT.act.filter(x => x.lv === 1).length >= 6 && SLOT.part.filter(x => x.lv === 1).length >= 6,
+  'act ' + SLOT.act.filter(x => x.lv === 1).length + ' / part ' + SLOT.part.filter(x => x.lv === 1).length);
+check('Lv1 不含露骨部位', !SLOT.part.some(p => p.lv === 1 && /大腿|胸口|臀|肚脐/.test(p.x)));
+
 console.log('\n── 尺寸与道具 ──');
 check('道具清单 12 项且无重复', PROPS.length === 12 && new Set(PROPS).size === 12, '实际 ' + PROPS.length);
 const propRefs = new Set(all.flatMap(c => c.p));

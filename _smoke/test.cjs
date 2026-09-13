@@ -229,6 +229,53 @@ async function boot(base, seed) {
   $('#menu').click(); await wait(150);
   $$('#ov-body [data-m="pick"]')[0].click(); await wait(150);
   check('点菜 4 种类型', $$('#ov-body [data-t]').length === 4);
+  check('点菜多出一个「动作 × 部位」', !!$('#ov-body [data-slot]'));
+
+  console.log('\n── 10.5 · 老虎机：动作 × 部位 ──');
+  $('#ov-body [data-slot]').click();
+  await until(() => doc.querySelector('#reel-act'));
+  check('两个转轮都渲染出来了', !!$('#reel-act') && !!$('#reel-part'));
+  check('两个转轮各有一个按钮', !!$('#spin-act') && !!$('#spin-part'));
+  check('初始都是问号', $('#reel-act span').textContent === '？？' && $('#reel-part span').textContent === '？？');
+  check('初始不出结果按钮', $('#slot-done').classList.contains('hide'));
+
+  $('#spin-act').click();
+  check('转的时候按钮禁用（防连点）', $('#spin-act').disabled === true);
+  // 转轮文字在动画第一帧就变了，不能靠它判断转完——按钮重新可用才是转完的信号
+  check('转完动作出结果', await until(() => !$('#spin-act').disabled, 6000), $('#reel-act span').textContent);
+  check('只转一个时提示还要转另一个', $('#slot-say').textContent.includes('部位'), $('#slot-say').textContent);
+  check('此时还不出「做了」', $('#slot-done').classList.contains('hide'));
+
+  $('#spin-part').click();
+  await until(() => !$('#spin-part').disabled, 6000);
+  check('转完部位出结果', await until(() => !$('#slot-done').classList.contains('hide'), 3000));
+  const actTxt = $('#reel-act span').textContent, partTxt = $('#reel-part span').textContent;
+  check('动作是合法值', actTxt !== '？？' && actTxt.length > 0, actTxt);
+  check('部位是合法值', partTxt !== '？？' && partTxt.length > 0, partTxt);
+  const slotSay = $('#slot-say').textContent;
+  check('结果句带上了两个人名', slotSay.includes('阿离') && slotSay.includes('小满'), slotSay);
+  check('结果句包含动作与部位', slotSay.includes(actTxt) && slotSay.includes(partTxt), slotSay);
+  check('出现重转按钮', !$('#slot-again').classList.contains('hide'));
+
+  $('#slot-again').click(); await wait(150);
+  check('重转清空两个轮子', $('#reel-act span').textContent === '？？' && $('#reel-part span').textContent === '？？');
+  check('重转后又藏起结果按钮', $('#slot-done').classList.contains('hide'));
+
+  $('#spin-act').click(); await until(() => !$('#spin-act').disabled, 6000);
+  $('#spin-part').click(); await until(() => !$('#spin-part').disabled, 6000);
+  await until(() => !$('#slot-done').classList.contains('hide'), 3000);
+  const heatBefore = parseInt($('#heat-txt').textContent, 10);
+  const turnBefore2 = $('#turn').textContent;
+  const finalPart = $('#reel-part span').textContent;
+  $('#slot-done').click(); await wait(350);
+  check('老虎机结果计入热度', parseInt($('#heat-txt').textContent, 10) === heatBefore + 1, $('#heat-txt').textContent);
+  check('老虎机结束后换人', $('#turn').textContent !== turnBefore2, $('#turn').textContent);
+
+  $('#menu').click(); await wait(150);
+  $$('#ov-body [data-m="log"]')[0].click(); await wait(150);
+  const logHtml = $('#tb').innerHTML;
+  check('老虎机结果写进了记录', logHtml.includes(finalPart), '找了 ' + finalPart);
+  check('记录里占位符已还原成人名', !logHtml.includes('{self}') && !logHtml.includes('{other}'));
   shut(win); await wait(150);
 
   console.log('\n── 11 · 安全词 ──');
