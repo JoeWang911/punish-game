@@ -192,9 +192,49 @@ for (let i = 0; i < 200; i++) {
 }
 check('关掉「留痕」后 Lv4 不再出留印类的词', slotBad3.length === 0, slotBad3.slice(0, 3).join(' ; '));
 
+console.log('\n── 等级 / 标签边界 ──');
+// 这是这条规则的可执行版本：每个标签最早能从哪一档出现。
+// 用户报过「选了 Lv4 会出其他等级的题」，这条就是防它回来的。
+const TAG_MIN_LEVEL = {
+  '留痕': 1,
+  '敏感部位': 2, '绑束': 2, '蒙眼': 2, '听指令': 2, '道具': 2, '影像': 2, '被听见': 2,
+  '裸露': 3, '疼痛': 3,
+  '性行为': 4, '用嘴': 4
+};
+check('边界表覆盖了全部标签', TAGS.every(id => TAG_MIN_LEVEL[id] !== undefined),
+  TAGS.filter(id => TAG_MIN_LEVEL[id] === undefined).join(','));
+
+const crosses = [];
+all.forEach(c => (c.g || []).forEach(g => {
+  if (TAG_MIN_LEVEL[g] !== undefined && c.lvl < TAG_MIN_LEVEL[g]) {
+    crosses.push('Lv' + c.lvl + ' 出了「' + g + '」: ' + c.x.slice(0, 20));
+  }
+}));
+SLOT.act.concat(SLOT.part).forEach(it => (it.g || []).forEach(g => {
+  if (TAG_MIN_LEVEL[g] !== undefined && it.lv < TAG_MIN_LEVEL[g]) {
+    crosses.push('翻牌子 Lv' + it.lv + ' 出了「' + g + '」: ' + it.x);
+  }
+}));
+check('卡池没有跨等级内容（Lv2 不脱衣、Lv3 不做爱，以此类推）',
+  crosses.length === 0, crosses.slice(0, 4).join(' ; '));
+
+// 逐档点名确认
+const tagAt = (lv) => {
+  const set = new Set();
+  all.filter(c => c.lvl === lv).forEach(c => (c.g || []).forEach(g => set.add(g)));
+  return set;
+};
+const l1 = tagAt(1);
+check('Lv1 只有留痕（纯聊天拥抱）', [...l1].every(g => g === '留痕'), [...l1].join(','));
+check('Lv2 完全没有裸露', !tagAt(2).has('裸露'), '');
+check('Lv2 完全没有性行为 / 用嘴', !tagAt(2).has('性行为') && !tagAt(2).has('用嘴'), '');
+check('Lv3 完全没有性行为 / 用嘴', !tagAt(3).has('性行为') && !tagAt(3).has('用嘴'), '');
+check('Lv4 有性行为，也单独有「用嘴」', tagAt(4).has('性行为') && tagAt(4).has('用嘴'), [...tagAt(4)].join(','));
+check('Lv4 有疼痛（微暴力）', tagAt(4).has('疼痛'));
+
 console.log('\n── 红线标签体系 ──');
 const ids = TAGS.slice();
-check('11 个标签', ids.length === 11, '实际 ' + ids.length);
+check('12 个标签（双数，界面两列刚好）', ids.length === 12 && ids.length % 2 === 0, '实际 ' + ids.length);
 check('每个标签都有说明', win.TAGS.every(t => t.d && t.d.length > 4));
 check('标签 id 不重复', new Set(ids).size === ids.length);
 check('标签说明不重复', new Set(win.TAGS.map(t => t.d)).size === ids.length);
