@@ -418,6 +418,80 @@ async function boot(base, seed) {
   check('老存档里的真心话被迁移过来', d3.querySelector('#tb').innerHTML.includes('喘气'), d3.querySelector('#tb').innerHTML.slice(0, 80));
   dom3.window.close();
 
+  console.log('\n── 18 · 终极模式（对方指定一切）──');
+  // 直接把状态种成「阿离的积分已经攒够，下次受罚进终极」
+  const ultSeed = {
+    names: ['阿离', '小满'], safe: '菠萝', max: 3, blocked: [], turn: 0, round: 5,
+    score: [4, 2], mult: 1, armed: [1, 0], ultPending: [true, false], prompted16: false,
+    toke: [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }], needed: [], seen: [],
+    history: [{ at: Date.now(), who: '阿离', lvl: 3, t: 'dare', x: '占位记录', st: 'done', ans: '' }],
+    truths: [], sessions: 0
+  };
+  const dom4 = await boot(base, ultSeed);
+  const w4 = dom4.window, d4 = w4.document;
+  const $4 = s => d4.querySelector(s);
+  const $$4 = s => Array.from(d4.querySelectorAll(s));
+  d4.querySelector('#btn-resume').click();
+  await wait(400);
+  check('受罚方攒够时自动进终极模式（没转转盘）', await until(() => $4('#ov-body') && $4('#ov-body').textContent.includes('终极模式'), 3000));
+  check('写明由对方决定', $4('#ov-body').textContent.includes('小满'), $4('#ov-body').textContent.slice(0, 50));
+  check('五种模式都能选', $$4('#ov-body [data-u]').length === 5, '实际 ' + $$4('#ov-body [data-u]').length);
+  check('终极标记已消耗掉', JSON.parse(w4.localStorage.getItem('punish-game-v1')).ultPending[0] === false);
+
+  // 分支 A：选惩罚 → 三个盒子内容摊开
+  $4('#ov-body [data-u="punish"]').click();
+  await wait(300);
+  check('开出三个摊开的选项', $$4('#ov-body .opt').length === 3, '实际 ' + $$4('#ov-body .opt').length);
+  const optTexts = $$4('#ov-body .opt-x').map(x => x.textContent.trim());
+  check('选项内容直接可见（不是问号）', optTexts.every(t => t.length > 4 && !t.includes('？')), optTexts[0] && optTexts[0].slice(0, 24));
+  check('三个选项内容互不相同', new Set(optTexts).size === 3);
+  check('每个选项都标了等级', $$4('#ov-body .opt-k').every(k => /Lv3/.test(k.textContent)), $$4('#ov-body .opt-k')[0] && $$4('#ov-body .opt-k')[0].textContent);
+  $$4('#ov-body .opt')[1].click();
+  await wait(400);
+  check('选中的卡弹出来了', await until(() => $4('.c-text') && !$4('#ov').classList.contains('hide'), 3000));
+  check('卡片上有终极横幅', $4('.banner.ult') && $4('.banner.ult').textContent.includes('终极模式'));
+  check('横幅写明是谁指定的', $4('.banner.ult').textContent.includes('小满'), $4('.banner.ult').textContent);
+  check('卡主是攒够的那位（阿离）', $4('.c-who').textContent === '阿离', $4('.c-who').textContent);
+  check('这张卡的内容正是被挑中的那个', $4('.c-text').textContent.trim() === optTexts[1], $4('.c-text').textContent.slice(0, 30));
+  if ($4('#done')) { $4('#done').click(); await wait(500); }
+
+  console.log('\n── 19 · 终极模式里的翻牌子：对方点动作和部位 ──');
+  const ultSeed2 = JSON.parse(JSON.stringify(ultSeed));
+  ultSeed2.turn = 0;
+  ultSeed2.score = [4, 1];
+  ultSeed2.ultPending = [true, false];
+  const dom5 = await boot(base, ultSeed2);
+  const w5 = dom5.window, d5 = w5.document;
+  const $5 = s => d5.querySelector(s);
+  const $$5 = s => Array.from(d5.querySelectorAll(s));
+  d5.querySelector('#btn-resume').click(); await wait(400);
+  await until(() => $5('#ov-body [data-u="slot"]'), 3000);
+  $5('#ov-body [data-u="slot"]').click();
+  await wait(300);
+  check('弹出动作与部位两组选项', $$5('#ov-body [data-a]').length > 0 && $$5('#ov-body [data-p]').length > 0,
+    '动作 ' + $$5('#ov-body [data-a]').length + ' / 部位 ' + $$5('#ov-body [data-p]').length);
+  check('没选之前「确定」是禁用的', $5('#u-go').disabled === true);
+  check('选项只来自当前档（Lv3）', $$5('#ov-body [data-a]').every(b => w5.SLOT.act.some(x => x.x === b.textContent && x.lv === 3)),
+    $$5('#ov-body [data-a]').map(b => b.textContent).join('/'));
+  $$5('#ov-body [data-a]')[2].click(); await wait(120);
+  check('选了一个动作后还是禁用（部位没选）', $5('#u-go').disabled === true);
+  $$5('#ov-body [data-p]')[1].click(); await wait(150);
+  check('两个都选了「确定」才可用', $5('#u-go').disabled === false);
+  const pickAct = $$5('#ov-body [data-a]')[2].textContent, pickPart = $$5('#ov-body [data-p]')[1].textContent;
+  check('按钮上预览了结果', $5('#u-go').textContent.includes(pickAct) && $5('#u-go').textContent.includes(pickPart), $5('#u-go').textContent);
+  $5('#u-go').click(); await wait(500);
+  const finalTxt = $5('.c-text') ? $5('.c-text').textContent : '(没有卡片)';
+  check('出的正是对方点的那一套（' + pickAct + ' × ' + pickPart + '）', finalTxt.includes(pickAct) && finalTxt.includes(pickPart), finalTxt);
+  check('这句话带上了两个人的名字', finalTxt.includes('阿离') && finalTxt.includes('小满'), finalTxt);
+  // 对方只是「指定」，做还是得被指定的那位自己做，做完才加分
+  check('指定之后卡主仍是攒够的那位', !!$5('.c-who') && $5('.c-who').textContent === '阿离', $5('.c-who') && $5('.c-who').textContent);
+  const before5 = JSON.parse(w5.localStorage.getItem('punish-game-v1')).score[0];
+  if ($5('#done')) { $5('#done').click(); await wait(500); }
+  const s5 = JSON.parse(w5.localStorage.getItem('punish-game-v1'));
+  check('做完了才 +1（' + before5 + ' → ' + s5.score[0] + '）', s5.score[0] === before5 + 1, 'score=' + s5.score.join('/'));
+  dom5.window.close();
+  dom4.window.close();
+
   console.log('\n════════════════════════');
   console.log('  通过 ' + pass + '，失败 ' + fail);
   console.log('════════════════════════');

@@ -626,15 +626,9 @@
         x: '{self} ' + got.act + ' {other} 的' + got.part,
         ultimate: true, chosenBy: otherN()
       };
-      log(c, 'done');
-      S.score[S.turn]++;
-      var who = S.turn;
-      S.mult = 1;
-      save(); shut(); hud();
-      armCheck(who); save(); hud();
-      toast(selfN() + ' +1 张');
-      afterScore();
-      next();
+      // 交给正常的卡片流程：对方点完，还是得被指定的那位自己做
+      shut();
+      setTimeout(function () { show(c, false); }, 220);
     };
     refresh();
   }
