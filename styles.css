@@ -382,6 +382,12 @@ input[type=text]:focus{
 .ult-body{animation:fadeUp .34s var(--ease) both}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 
+.who-note{
+  margin:0 0 4px;padding:12px 14px;border-radius:var(--r-m);font-size:12.5px;line-height:1.7;
+  color:var(--txt-2);
+  background:linear-gradient(150deg,rgba(232,189,124,.12),rgba(120,32,90,.14));
+  border:1px solid rgba(232,189,124,.28);
+}
 .who-pick{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:22px}
 .who-pick button{
   padding:18px 12px;cursor:pointer;font:inherit;font-size:16px;font-weight:700;

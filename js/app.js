@@ -563,29 +563,46 @@
   }
 
   function ultWhoStep(armed) {
-    var h = '<p class="spec-h">这次谁受罚</p><div class="who-pick" id="ult-who">';
+    var h = '<p class="who-note">只有攒够的那位吃终极。换成另一位，就是普通受罚一轮，这次终极留着。</p>';
+    h += '<p class="spec-h">这次谁受罚</p><div class="who-pick" id="ult-who">';
     [0, 1].forEach(function (i) {
       h += '<button data-w="' + i + '"' + (i === armed ? ' class="on"' : '') + '>'
-        + esc(S.names[i]) + (i === armed ? '<small>攒够的那位</small>' : '<small>要换人点这里</small>') + '</button>';
+        + esc(S.names[i])
+        + '<small>' + (i === armed ? '吃终极' : '普通受罚一轮') + '</small></button>';
     });
-    h += '</div><button class="btn primary" id="ult-go">进入终极模式</button>';
+    h += '</div><button class="btn primary" id="ult-go"></button>';
     $('#ult-body').innerHTML = h;
+
     var victim = armed;
+    function label() {
+      $('#ult-go').textContent = victim === armed
+        ? '让 ' + S.names[victim] + ' 受终极'
+        : '换成 ' + S.names[victim] + ' 普通受罚';
+    }
     $$('#ult-body [data-w]').forEach(function (b) {
       b.onclick = function () {
         victim = +b.dataset.w;
         $$('#ult-body [data-w]').forEach(function (x) { x.classList.remove('on'); });
         b.classList.add('on');
         beep(660, 0.05, 'square');
-        $('#ult-go').textContent = '让 ' + S.names[victim] + ' 受罚';
+        label();
       };
     });
-    $('#ult-go').textContent = '让 ' + S.names[armed] + ' 受罚';
+    label();
+
     $('#ult-go').onclick = function () {
-      S.ultPending[armed] = false;
       S.turn = victim;
-      save(); hud();
-      ultTypeStep();
+      if (victim === armed) {
+        // 真的用掉这次终极
+        S.ultPending[armed] = false;
+        save(); hud();
+        ultTypeStep();
+      } else {
+        // 只是把这一轮让给对方，终极不消耗，等攒够的那位下次再受罚
+        save(); hud();
+        toast('这轮 ' + S.names[victim] + ' 普通受罚，终极留着');
+        showSpin();
+      }
     };
   }
 
