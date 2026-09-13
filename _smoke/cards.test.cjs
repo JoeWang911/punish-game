@@ -28,7 +28,7 @@ Object.keys(POOL).forEach(lvl => {
       if (c.s != null && (typeof c.s !== 'number' || c.s <= 0)) bad.push(id + ' 的限时不是正数');
       (c.g || []).forEach(g => { if (TAGS.indexOf(g) < 0) bad.push(id + ' 用了未登记的标签 ' + g); });
       (c.p || []).forEach(p => { if (PROPS.indexOf(p) < 0) bad.push(id + ' 用了未登记的道具 ' + p); });
-      all.push({ lvl: +lvl, t: t, x: c.x, s: c.s || 0, p: c.p || [], g: c.g || [], id: id });
+      all.push({ lvl: +lvl, t: t, x: c.x, s: c.s || 0, p: c.p || [], g: c.g || [], id: id, d: c.d || '' });
     });
   });
 });
@@ -191,6 +191,16 @@ for (let i = 0; i < 200; i++) {
   if ((a.g || []).indexOf('留痕') >= 0) slotBad3.push('关掉痕迹后仍抽到 ' + a.x);
 }
 check('关掉「留痕」后 Lv4 不再出留印类的词', slotBad3.length === 0, slotBad3.slice(0, 3).join(' ; '));
+
+console.log('\n── 掷骰 / 抛硬币的卡 ──');
+const rollCards = all.filter(c => c.d);
+check('有需要现场掷一次的卡（' + rollCards.length + ' 张）', rollCards.length >= 4, '实际 ' + rollCards.length);
+check('掷的类型只有 dice / coin',
+  rollCards.every(c => c.d === 'dice' || c.d === 'coin'),
+  [...new Set(rollCards.map(c => c.d))].join(','));
+check('掷骰的卡都在 Lv2 以上', rollCards.every(c => c.lvl >= 2),
+  rollCards.filter(c => c.lvl < 2).map(c => c.x).join(' ; '));
+rollCards.forEach(c => console.log('   Lv' + c.lvl + ' [' + c.d + '] ' + c.x.slice(0, 30)));
 
 console.log('\n── 等级 / 标签边界 ──');
 // 这是这条规则的可执行版本：每个标签最早能从哪一档出现。

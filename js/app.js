@@ -123,7 +123,7 @@
     var g = window.CARD_POOL[lvl];
     Object.keys(g).forEach(function (t) {
       g[t].forEach(function (c, i) {
-        POOL.push({ id: lvl + t + i, lvl: +lvl, t: c.t, x: c.x, s: c.s || 0, p: c.p || [], g: c.g || [] });
+        POOL.push({ id: lvl + t + i, lvl: +lvl, t: c.t, x: c.x, s: c.s || 0, p: c.p || [], g: c.g || [], d: c.d || '' });
       });
     });
   });
@@ -160,7 +160,7 @@
     if (!fresh.length) { S.seen = []; fresh = list; }
     var c = weight(fresh, function (x) { return LVW[x.lvl] || 1; });
     S.seen.push(c.id);
-    return { id: c.id, lvl: c.lvl, t: c.t, x: c.x, s: c.s, p: c.p, g: c.g };
+    return { id: c.id, lvl: c.lvl, t: c.t, x: c.x, s: c.s, p: c.p, g: c.g, d: c.d };
   }
   function drawCost() {
     var a = window.SPECIAL.cost, i = rnd(a.length);
@@ -438,6 +438,15 @@
       h += '<div class="c-ans"><textarea id="ans" placeholder="写下来会存进「真心话」，以后能翻"></textarea></div>';
     }
 
+    // 需要现场掷一次的卡：骰子或硬币
+    if (card.d) {
+      h += '<div class="roll">'
+        + '<button class="btn ghost" id="act-roll">'
+        + (card.d === 'coin' ? '🪙 抛三枚硬币' : '🎲 掷两颗骰子')
+        + '</button>'
+        + '<p class="roll-out" id="roll-out">还没掷</p></div>';
+    }
+
     if (card.t === 'lucky') {
       h += '<button class="btn primary" id="done">好，跳过</button>';
       sheet(h);
@@ -459,6 +468,7 @@
     sheet(h);
 
     if (card.s) $('#act-timer').onclick = function () { runTimer(card.s, k.n); };
+    if (card.d) $('#act-roll').onclick = function () { rollNow(card.d); };
     $('#done').onclick = isCost ? endCost : endCard;
     if (!isCost) {
       $('#give').onclick = giveUp;
@@ -473,6 +483,40 @@
     if (s < 60) return s + ' 秒';
     var m = Math.floor(s / 60), r = s % 60;
     return r ? m + ' 分 ' + r + ' 秒' : m + ' 分钟';
+  }
+
+  /* 卡上现场掷一次：两颗骰子，或者三枚硬币 */
+  var ROLL_FACE = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+  function rollNow(kind) {
+    var btn = $('#act-roll'), out = $('#roll-out');
+    if (!btn || !out || btn.disabled) return;
+    btn.disabled = true;
+    var n = 0;
+    var iv = setInterval(function () {
+      if (kind === 'coin') {
+        out.textContent = pick(['正', '反']) + ' ' + pick(['正', '反']) + ' ' + pick(['正', '反']);
+      } else {
+        out.textContent = ROLL_FACE[rnd(6)] + ' ' + ROLL_FACE[rnd(6)];
+      }
+      beep(900, 0.015, 'square');
+      if (++n > 10) {
+        clearInterval(iv);
+        if (kind === 'coin') {
+          var coins = [pick(['正', '反']), pick(['正', '反']), pick(['正', '反'])];
+          var tails = coins.filter(function (c) { return c === '反'; }).length;
+          out.textContent = coins.join(' ') + '　→　' + tails + ' 个反面';
+          out.className = 'roll-out done' + (tails ? ' hit' : '');
+        } else {
+          var a = 1 + rnd(6), b = 1 + rnd(6);
+          out.textContent = ROLL_FACE[a - 1] + ' ' + ROLL_FACE[b - 1] + '　→　' + (a + b) + ' 点';
+          out.className = 'roll-out done hit';
+        }
+        btn.textContent = '再掷一次';
+        btn.disabled = false;
+        chord([659, 880]);
+        buzz(40);
+      }
+    }, 80);
   }
 
   /* ── 结算 ── */

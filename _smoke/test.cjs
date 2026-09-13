@@ -854,6 +854,82 @@ async function boot(base, seed) {
   check('Lv4 按钮标着需要密码', /需要密码/.test($$B('#lv button').find(b => b.dataset.lv === '4').textContent));
   dB.window.close();
 
+  console.log('\n── 25 · 卡上现场掷骰 / 抛硬币 ──');
+  // 掷骰卡在池子里只占少数，随机抽不靠谱。
+  // 办法：把 Lv4 大冒险里「不带骰子」的全部塞进 seen，
+  // 这样牌堆里剩下的 fresh 就只有掷骰卡，抽到的一定是它。
+  const lv4dare = win.CARD_POOL[4].dare;
+  const seenIds = [];
+  lv4dare.forEach((c, i) => { if (!c.d) seenIds.push('4dare' + i); });
+  const diceCount = lv4dare.filter(c => c.d).length;
+  check('Lv4 大冒险里有 ' + diceCount + ' 张掷骰卡', diceCount >= 1, '实际 ' + diceCount);
+
+  const diceSeed = {
+    names: ['阿离', '小满'], safe: '菠萝', max: 4, blocked: [], turn: 0, round: 2,
+    score: [1, 1], mult: 1, armed: [0, 0], ultPending: [false, false], prompted16: false,
+    toke: [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }], needed: [],
+    seen: seenIds,
+    history: [{ at: Date.now(), who: '阿离', lvl: 4, t: 'dare', x: '占位', st: 'done', ans: '' }],
+    truths: [], sessions: 0
+  };
+  const domD = await boot(base, diceSeed);
+  const wD = domD.window, dD = wD.document;
+  const $D = s => dD.querySelector(s);
+  const $$D = s => Array.from(dD.querySelectorAll(s));
+  dD.querySelector('#btn-resume').click(); await wait(400);
+  if ($D('#pin')) { $D('#pin').value = '0519'; $D('#pin-go').click(); await wait(500); }
+  check('进入 Lv4', $D('#lv-chip').textContent.includes('Lv4'), $D('#lv-chip').textContent);
+
+  // 点菜 → 大冒险 → 抽到掷骰卡
+  $D('#menu').click(); await until(() => $D('#ov-body [data-m="pick"]'), 3000);
+  $D('#ov-body [data-m="pick"]').click();
+  await until(() => $D('#ov-body [data-t="dare"]'), 2000);
+  $D('#ov-body [data-t="dare"]').click();
+  await until(() => !$D('#step-pick').classList.contains('hide'), 3000);
+  $$D('.box')[0].click();
+  const diceCardSeen = await until(() => $D('.c-text') && !$D('#ov').classList.contains('hide'), 6000);
+  check('抽到卡了', diceCardSeen);
+  if (diceCardSeen) {
+    const isDice = $D('.c-text').textContent.includes('骰子');
+    const isCoin = $D('.c-text').textContent.includes('硬币');
+    check('抽到的正是掷骰/硬币那类（' + (isDice ? '骰子' : isCoin ? '硬币' : '？') + '）', isDice || isCoin,
+      $D('.c-text').textContent.slice(0, 26));
+    check('卡片上出现了掷一次的按钮', !!$D('#act-roll'), $D('#act-roll') ? '' : '没有按钮');
+    check('按钮文案跟类型对上', !!$D('#act-roll') &&
+      (isDice ? $D('#act-roll').textContent.includes('骰子') : $D('#act-roll').textContent.includes('硬币')),
+      $D('#act-roll') && $D('#act-roll').textContent);
+    check('掷之前显示「还没掷」', $D('#roll-out').textContent.includes('还没掷'), $D('#roll-out').textContent);
+
+    $D('#act-roll').click();
+    check('掷的时候按钮禁用（防连点）', $D('#act-roll').disabled === true);
+    const rolled = await until(() => $D('#roll-out').classList.contains('done'), 5000);
+    check('掷出了结果', rolled, $D('#roll-out').textContent);
+    const outTxt = $D('#roll-out').textContent;
+    if (isDice) {
+      check('骰子结果形如「⚄ ⚂ → 9 点」', /→\s*\d+\s*点/.test(outTxt), outTxt);
+      const sum = parseInt(outTxt.match(/→\s*(\d+)\s*点/)[1], 10);
+      check('两颗骰子的和在 2–12 之间（实际 ' + sum + '）', sum >= 2 && sum <= 12);
+    } else {
+      check('硬币结果形如「正 反 正 → 1 个反面」', /→\s*\d\s*个反面/.test(outTxt), outTxt);
+      const tails = parseInt(outTxt.match(/→\s*(\d)\s*个反面/)[1], 10);
+      check('反面个数在 0–3 之间（实际 ' + tails + '）', tails >= 0 && tails <= 3);
+    }
+    check('结果样式有高亮', $D('#roll-out').classList.contains('hit') || $D('#roll-out').classList.contains('done'));
+    check('按钮变成「再掷一次」', $D('#act-roll').textContent.includes('再掷'), $D('#act-roll').textContent);
+    check('按钮重新可用', $D('#act-roll').disabled === false);
+
+    // 再掷一次应该换个数（不一定每次都不同，所以只验它还能掷）
+    $D('#act-roll').click();
+    await until(() => $D('#act-roll').disabled === false && $D('#roll-out').classList.contains('done'), 5000);
+    check('可以再掷一次', $D('#roll-out').classList.contains('done'), $D('#roll-out').textContent);
+
+    check('掷完还能正常结算', !!$D('#done'));
+    if ($D('#done')) { $D('#done').click(); await wait(500); }
+    check('结算后回到转盘 / 终极步骤',
+      !$D('#step-spin').classList.contains('hide') || !$D('#step-ult').classList.contains('hide'));
+  }
+  domD.window.close();
+
   console.log('\n════════════════════════');
   console.log('  通过 ' + pass + '，失败 ' + fail);
   console.log('════════════════════════');
