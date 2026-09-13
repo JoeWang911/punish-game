@@ -16,7 +16,10 @@
   var hide = function (el, yes) { el.classList.toggle('hide', yes); };
 
   var LS = 'punish-game-v1';
-  var HEAT_STEP = 8;
+  var LEVEL_UP_AT = 16;   // 两人积分之和到这个数，问要不要升一档
+  var ULT_EVERY = 4;      // 个人积分每到 4 的倍数，武装一次终极模式
+  var REVERSE_P = 0.04;   // 反转：这张转给对方
+  var LUCKY_P = 0.04;     // 幸运：这轮跳过
 
   var S = null;
   var spinDeg = 0;
@@ -49,7 +52,10 @@
   function blank() {
     return {
       names: ['宝贝', '亲爱的'], safe: '菠萝', max: 2, blocked: [],
-      turn: 0, round: 1, heat: 0, score: [0, 0], mult: 1, ultUsed: 0,
+      turn: 0, round: 1, heat: 0, score: [0, 0], mult: 1,
+      armed: [0, 0],          // 每人已经武装过几次终极
+      ultPending: [false, false],
+      prompted16: false,
       toke: [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }],
       history: [],          // 本局
       truths: [],           // 跨局保留
@@ -58,8 +64,9 @@
     };
   }
   function save() {
-    var keep = ['names', 'safe', 'max', 'blocked', 'turn', 'round', 'heat', 'score',
-                'mult', 'ultUsed', 'toke', 'history', 'truths', 'sessions', 'needed', 'seen'];
+    var keep = ['names', 'safe', 'max', 'blocked', 'turn', 'round', 'score',
+                'armed', 'ultPending', 'prompted16', 'toke', 'history', 'truths',
+                'sessions', 'needed', 'seen'];
     var o = {};
     keep.forEach(function (k) { o[k] = S[k]; });
     try { localStorage.setItem(LS, JSON.stringify(o)); } catch (e) {}
@@ -98,11 +105,12 @@
 
   var LVW = { 1: 1, 2: 1.45, 3: 1.9, 4: 2.4 };
 
-  function ok(c) {
-    if (c.lvl > S.max) return false;
+  /* 题只出当前等级的。选了 Lv4 就只有 Lv4，不再混低等级的题。 */
+  function tagOk(c) {
     for (var i = 0; i < c.g.length; i++) if (S.blocked.indexOf(c.g[i]) >= 0) return false;
     return true;
   }
+  function ok(c) { return c.lvl === S.max && tagOk(c); }
   function weight(list, f) {
     var total = 0, ws = list.map(function (c) { var w = f(c); total += w; return w; });
     if (total <= 0) return pick(list);
@@ -111,26 +119,18 @@
     return list[list.length - 1];
   }
 
-  function special(t) {
-    var arr = window.SPECIAL[t], i = rnd(arr.length);
-    return { id: t + i, idx: i, lvl: 0, t: t, x: arr[i].x, s: arr[i].s || 0, p: arr[i].p || [], g: arr[i].g || [] };
-  }
-
-  /** 抽一张指定类型的卡。type 为空就自己按权重挑一个。 */
+  /** 抽一张指定类型的卡。type 为空就自己挑一个。 */
   function draw(type, top) {
-    if (type === 'reverse' || type === 'lucky') return special(type);
-    if (!type) {
-      var ks = ['truth', 'dare', 'punish', 'duo'];
-      type = pick(ks);
-    }
+    if (!type) type = pick(['truth', 'dare', 'punish', 'duo']);
     var list = POOL.filter(function (c) { return c.t === type && ok(c); });
-    if (top && list.length) {
+    if (!list.length) list = POOL.filter(function (c) { return c.t === type && c.lvl === S.max; });
+    if (!list.length) list = POOL.filter(function (c) { return c.t === type; });
+    if (!list.length) list = POOL.filter(ok);
+    if (!list.length) list = POOL.slice();
+    if (top) {
       var hi = Math.max.apply(null, list.map(function (c) { return c.lvl; }));
       list = list.filter(function (c) { return c.lvl === hi; });
     }
-    if (!list.length) list = POOL.filter(function (c) { return ok(c); });
-    if (!list.length) list = POOL.filter(function (c) { return c.lvl <= S.max; });
-    if (!list.length) list = POOL.slice();
     var fresh = list.filter(function (c) { return S.seen.indexOf(c.id) < 0; });
     if (!fresh.length) { S.seen = []; fresh = list; }
     var c = weight(fresh, function (x) { return LVW[x.lvl] || 1; });
@@ -187,22 +187,38 @@
   }
 
   /* ── HUD ── */
+  function combined() { return S.score[0] + S.score[1]; }
+
   function hud() {
     [0, 1].forEach(function (i) {
       $('#n-' + i).textContent = S.names[i];
       $('#s-' + i).textContent = S.score[i];
       $('#who-' + i).classList.toggle('on', S.turn === i);
       $('#who-' + i).title = '点一下，轮到 ' + S.names[i];
+      $('#who-' + i).classList.toggle('armed', !!S.ultPending[i]);
     });
-    var inStep = S.heat % HEAT_STEP;
-    $('#heat-fill').style.width = (S.heat === 0 ? 0 : Math.max(6, inStep / HEAT_STEP * 100)) + '%';
-    $('#heat-txt').textContent = S.heat + ' / ' + (Math.floor(S.heat / HEAT_STEP) + 1) * HEAT_STEP;
+    var c = combined();
+    $('#heat-fill').style.width = (c === 0 ? 0 : Math.max(6, Math.min(100, c / LEVEL_UP_AT * 100))) + '%';
+    $('#heat-txt').textContent = S.max >= 4 ? c + ' 张（已满档）' : Math.min(c, LEVEL_UP_AT) + ' / ' + LEVEL_UP_AT;
     $('#turn').innerHTML = '轮到 <b>' + esc(selfN()) + '</b>';
-    var c = charges();
-    $('#ult').disabled = c <= 0;
-    $('#ult').classList.toggle('ready', c > 0);
+    var L = window.LEVELS[S.max];
+    $('#lv-chip').textContent = 'Lv' + S.max + ' · ' + L.n;
+    $('#lv-chip').classList.toggle('ready', canLevelUp());
   }
-  function charges() { return Math.floor(S.heat / HEAT_STEP) - (S.ultUsed || 0); }
+  function canLevelUp() { return S.max < 4 && combined() >= LEVEL_UP_AT; }
+
+  /* 积分每到 4 的倍数，这个人下次受罚就进终极模式 */
+  function armCheck(i) {
+    var n = S.armed[i] || 0;
+    if (S.score[i] >= (n + 1) * ULT_EVERY) {
+      S.armed[i] = n + 1;
+      S.ultPending[i] = true;
+      setTimeout(function () {
+        hearts();
+        toast(S.names[i] + ' 先攒够了——下次受罚进终极模式');
+      }, 500);
+    }
+  }
 
   /* 手动换人：别的游戏输了的人可以直接被点成受罚方 */
   function setTurn(i) {
@@ -211,6 +227,36 @@
     save(); hud();
     beep(560, 0.06, 'square');
     toast('轮到 ' + selfN());
+    if (S.ultPending[i]) showSpin();
+  }
+
+  /* 换等级：题目跟着换 */
+  function setLevel(lv) {
+    S.max = lv;
+    S.seen = [];               // 换档了，重新洗牌
+    save(); hud();
+    toast('题目换成 Lv' + lv + ' · ' + window.LEVELS[lv].n);
+    if (!$('#ov').classList.contains('hide')) shut();
+    if (!$('#sc-game').classList.contains('on')) return;
+    showSpin();
+  }
+
+  function openLevelPicker() {
+    var h = '<h3 class="ov-h">题目等级</h3>';
+    h += '<p class="ov-p">换档之后，抽到的题就全换成这一档的。<br>';
+    if (canLevelUp()) h += '<b>你们一共做了 ' + combined() + ' 张，可以升一档了。</b> ';
+    h += '随时都能改。</p><div class="menu-list">';
+    [1, 2, 3, 4].forEach(function (lv) {
+      var L = window.LEVELS[lv];
+      h += '<button data-lv="' + lv + '"' + (lv === S.max ? ' class="cur"' : '') + '>'
+        + '<em>' + L.i + '</em>' + esc(L.n)
+        + '<s>' + (lv === S.max ? '当前' : esc(L.d)) + '</s></button>';
+    });
+    h += '</div>';
+    sheet(h);
+    $$('#ov-body [data-lv]').forEach(function (b) {
+      b.onclick = function () { setLevel(+b.dataset.lv); };
+    });
   }
 
   /* ── 弹层 ── */
@@ -262,7 +308,14 @@
     var mult = S.mult || 1;
     card.p.forEach(function (p) { if (S.needed.indexOf(p) < 0) S.needed.push(p); });
 
-    var h = '<div class="c-top">';
+    var h = '';
+    if (card.reversed) {
+      h += '<div class="banner rev">🔄 ' + fill(card.revText || '反转！{other} 替你受这一张。') + '</div>';
+    }
+    if (card.ultimate) {
+      h += '<div class="banner ult">🌋 终极模式 · 由 ' + esc(card.chosenBy || '对方') + ' 指定</div>';
+    }
+    h += '<div class="c-top">';
     h += '<span class="c-kind ' + k.c + '">' + k.n + '</span>';
     if (card.lvl) h += '<span class="c-lvl">Lv' + card.lvl + (mult > 1 ? ' · ×' + mult : '') + '</span>';
     h += '<span class="c-who">' + esc(selfN()) + '</span></div>';
@@ -273,10 +326,19 @@
     if (card.s) meta.push('<span class="w">⏱ ' + sec(card.s) + '</span>');
     if (card.p.length) meta.push('<span class="w">需要 ' + card.p.map(esc).join('、') + '</span>');
     if (mult > 1) meta.push('<span class="w">罚两份</span>');
+    if (isCost) meta.push('<span class="w">做完积分 +2</span>');
     if (meta.length) h += '<div class="c-meta">' + meta.join('') + '</div>';
 
     if (card.t === 'truth') {
       h += '<div class="c-ans"><textarea id="ans" placeholder="写下来会存进「真心话」，以后能翻"></textarea></div>';
+    }
+
+    if (card.t === 'lucky') {
+      h += '<button class="btn primary" id="done">好，跳过</button>';
+      sheet(h);
+      $('#done').onclick = luckySkip;
+      chord([659, 880, 1046]); buzz(30);
+      return;
     }
 
     if (card.s) h += '<button class="btn primary" id="act-timer">开始倒计时</button>';
@@ -327,48 +389,58 @@
     inTurn = false;
     log(c, 'done', ans);
     S.score[S.turn]++;
-    S.heat++;
     S.mult = 1;
-    lucky(c);
+    var who = S.turn;
     save(); shut(); hud();
-
-    if (c.t === 'reverse') {
-      S.turn = 1 - S.turn;
-      hud();
-      toast('甩给 ' + selfN() + ' 了');
-      setTimeout(showSpin, 650);
-      return;
-    }
-    toast(c.t === 'duo' ? '这张算两个人的' : '热度 +1');
-    bumpHeat();
+    armCheck(who);
+    save(); hud();
+    toast(c.t === 'duo' ? '这张算两个人的' : selfN() + ' +1 张');
+    afterScore();
     next();
   }
 
-  function lucky(c) {
-    if (c.t !== 'lucky') return;
-    if (c.idx === 0) { S.toke[S.turn].skip++; toast('拿到一张免罚卡'); }
-    if (c.idx === 1) { S.toke[S.turn].rev++; toast('拿到一张反转卡'); }
-    if (c.idx === 2) {
-      S.toke[S.turn].skip++;
-      setTimeout(function () { toBox('punish'); }, 900);
-    }
+  /* 幸运：这轮免罚，直接跳过 —— 不加分也不加题 */
+  function luckySkip() {
+    var c = S.cur;
+    inTurn = false;
+    log(c, 'skip');
+    S.mult = 1;
+    save(); shut(); hud();
+    toast('这轮跳过');
+    next();
   }
 
   function endCost() {
     inTurn = false;
     log(S.cur, 'cost');
-    S.heat++;
+    S.score[S.turn] += 2;          // 代价做完积分直接 +2
     S.mult = 1;
+    var who = S.turn;
     save(); shut(); hud();
-    toast('代价付清了');
-    bumpHeat();
+    armCheck(who);
+    save(); hud();
+    toast('代价付清，积分 +2');
+    afterScore();
     next();
   }
 
-  function bumpHeat() {
-    if (S.heat > 0 && S.heat % HEAT_STEP === 0) {
-      setTimeout(function () { hearts(); toast('终极盲盒解锁'); }, 450);
-    }
+  /* 两人积分之和到 16 就问一次要不要升级 */
+  function afterScore() {
+    if (S.max >= 4 || S.prompted16 || combined() < LEVEL_UP_AT) return;
+    S.prompted16 = true;
+    save();
+    setTimeout(askLevelUp, 700);
+  }
+
+  function askLevelUp() {
+    var nextLv = Math.min(4, S.max + 1);
+    var h = '<h3 class="ov-h">要不要升一档</h3>';
+    h += '<p class="ov-p">你们一共做了 <b>' + combined() + ' 张</b>。<br>升上去题会明显更狠，也可以先不升，随时从这个按钮切。</p>';
+    h += '<button class="btn primary" id="lu-yes">升到 Lv' + nextLv + ' · ' + esc(window.LEVELS[nextLv].n) + '</button>';
+    h += '<button class="btn ghost" id="lu-no">先不升，就这档</button>';
+    sheet(h);
+    $('#lu-yes').onclick = function () { setLevel(nextLv); hearts(); chord([523, 659, 784]); };
+    $('#lu-no').onclick = shut;
   }
 
   function useRev() {
@@ -376,6 +448,8 @@
     var c = S.cur;
     S.toke[S.turn].rev--;
     S.turn = 1 - S.turn;
+    c.reversed = true;
+    c.revText = '反转卡！这张甩给 {other}，做完 TA 加 1 分。';
     save(); hud(); shut();
     toast('甩给 ' + selfN() + ' 了');
     setTimeout(function () { show(c, false); }, 420);
@@ -443,11 +517,126 @@
     pending = null;
     busy = false;
     inTurn = false;
+    // 这个人积分攒够了，这次受罚直接进终极模式，不转转盘
+    if (S.ultPending && S.ultPending[S.turn]) {
+      S.ultPending[S.turn] = false;
+      save(); hud();
+      startUltimate();
+      return;
+    }
     hide($('#step-spin'), false);
     hide($('#step-pick'), true);
     $('#mw-say').textContent = '转一下，看这把玩什么';
     $('#spin-main').disabled = false;
     if (!$('#mw').innerHTML) paintWheel();
+  }
+
+  /* ============================================================
+   *  终极模式
+   *  积分先到 4 的那位，下次受罚时：对方指定模式，三个盒子亮着让对方挑
+   * ============================================================ */
+  function startUltimate() {
+    var victim = selfN(), chooser = otherN();
+    var h = '<h3 class="ov-h">🌋 终极模式</h3>';
+    h += '<p class="ov-p"><b>' + esc(victim) + '</b> 的积分先攒够了。<br>这一把由 <b>' + esc(chooser) + '</b> 说了算——选一种模式。</p>';
+    h += '<div class="menu-list">';
+    h += '<button data-u="truth"><em>💬</em>真心话</button>';
+    h += '<button data-u="dare"><em>🎯</em>大冒险</button>';
+    h += '<button data-u="punish"><em>⚡</em>惩罚</button>';
+    h += '<button data-u="duo"><em>💞</em>一起做</button>';
+    h += '<button data-u="slot"><em>🎰</em>翻牌子<s>动作和部位都由你点</s></button>';
+    h += '</div>';
+    sheet(h);
+    chord([196, 262, 330, 392]);
+    $$('#ov-body [data-u]').forEach(function (b) {
+      b.onclick = function () {
+        var k = b.dataset.u;
+        if (k === 'slot') ultimateSlotSpec();
+        else ultimateChooseCard(k);
+      };
+    });
+  }
+
+  /* 三个盒子亮着，内容直接给对方看，让对方挑一个 */
+  function ultimateChooseCard(type) {
+    var cards = [];
+    for (var i = 0; i < 3; i++) cards.push(draw(type));
+
+    var h = '<h3 class="ov-h">挑一张</h3>';
+    h += '<p class="ov-p">三个盒子的内容都摊开了，由 <b>' + esc(otherN()) + '</b> 挑一个给 <b>' + esc(selfN()) + '</b>。</p>';
+    h += '<div class="opts">';
+    cards.forEach(function (c, i) {
+      h += '<button class="opt" data-i="' + i + '">'
+        + '<span class="opt-k">' + KIND[c.t].n + ' · Lv' + c.lvl + '</span>'
+        + '<span class="opt-x">' + fill(c.x) + '</span></button>';
+    });
+    h += '</div><button class="btn ghost" id="u-back">换一种模式</button>';
+    sheet(h);
+    $$('#ov-body .opt').forEach(function (b) {
+      b.onclick = function () {
+        var c = cards[+b.dataset.i];
+        c.ultimate = true;
+        c.chosenBy = otherN();
+        shut();
+        setTimeout(function () { show(c, false); }, 220);
+      };
+    });
+    $('#u-back').onclick = startUltimate;
+  }
+
+  /* 翻牌子：动作和部位都由对方点 */
+  function ultimateSlotSpec() {
+    var acts = slotList('act'), parts = slotList('part');
+    var got = { act: null, part: null };
+    var h = '<h3 class="ov-h">你来点</h3>';
+    h += '<p class="ov-p">由 <b>' + esc(otherN()) + '</b> 各点一个，给 <b>' + esc(selfN()) + '</b> 做。</p>';
+    h += '<p class="spec-h">动作</p><div class="chips" id="c-act">';
+    acts.forEach(function (a, i) { h += '<button class="chip" data-a="' + i + '">' + esc(a.x) + '</button>'; });
+    h += '</div><p class="spec-h">部位</p><div class="chips" id="c-part">';
+    parts.forEach(function (p, i) { h += '<button class="chip" data-p="' + i + '">' + esc(p.x) + '</button>'; });
+    h += '</div>';
+    h += '<button class="btn primary" id="u-go" disabled>确定</button>';
+    h += '<button class="btn ghost" id="u-back">换一种模式</button>';
+    sheet(h);
+
+    function refresh() {
+      $('#u-go').disabled = !(got.act && got.part);
+      $('#u-go').textContent = got.act && got.part
+        ? '确定：' + selfN() + ' ' + got.act + ' ' + otherN() + ' 的' + got.part
+        : '确定';
+    }
+    $$('#ov-body [data-a]').forEach(function (b) {
+      b.onclick = function () {
+        got.act = acts[+b.dataset.a].x;
+        $$('#ov-body [data-a]').forEach(function (x) { x.classList.remove('on'); });
+        b.classList.add('on'); beep(660, 0.05, 'square'); refresh();
+      };
+    });
+    $$('#ov-body [data-p]').forEach(function (b) {
+      b.onclick = function () {
+        got.part = parts[+b.dataset.p].x;
+        $$('#ov-body [data-p]').forEach(function (x) { x.classList.remove('on'); });
+        b.classList.add('on'); beep(660, 0.05, 'square'); refresh();
+      };
+    });
+    $('#u-back').onclick = startUltimate;
+    $('#u-go').onclick = function () {
+      var c = {
+        id: 'ult-slot', lvl: S.max, t: 'dare', s: 0, p: [], g: [],
+        x: '{self} ' + got.act + ' {other} 的' + got.part,
+        ultimate: true, chosenBy: otherN()
+      };
+      log(c, 'done');
+      S.score[S.turn]++;
+      var who = S.turn;
+      S.mult = 1;
+      save(); shut(); hud();
+      armCheck(who); save(); hud();
+      toast(selfN() + ' +1 张');
+      afterScore();
+      next();
+    };
+    refresh();
   }
 
   function spinMain() {
@@ -505,9 +694,19 @@
           setTimeout(function () {
             $$('.box').forEach(function (x) { x.classList.remove('gone', 'open'); });
             busy = false;
-            // 小概率来张意外的：反转 / 幸运
-            var t = Math.random() < 0.08 ? (Math.random() < 0.5 ? 'reverse' : 'lucky') : pending;
-            show(draw(t), false);
+            var roll = Math.random();
+            if (roll < REVERSE_P) {           // 反转：这张转给对方
+              S.turn = 1 - S.turn;
+              var rc = draw(pending);
+              rc.reversed = true;
+              rc.revText = pick(window.SPECIAL.reverse);
+              hud();
+              show(rc, false);
+            } else if (roll < REVERSE_P + LUCKY_P) {   // 幸运：这轮跳过
+              show({ t: 'lucky', lvl: 0, x: pick(window.SPECIAL.lucky), s: 0, p: [], g: [] }, false);
+            } else {
+              show(draw(pending), false);
+            }
           }, 560);
         }, 660);
       };
@@ -517,13 +716,15 @@
   /* ============================================================
    *  翻牌子：动作 × 部位
    * ============================================================ */
+  /* 翻牌子只出当前等级的词，跟题目一个规矩 */
   function slotList(kind) {
     var src = window.SLOT[kind];
     var list = src.filter(function (it) {
-      if (it.lv > S.max) return false;
+      if (it.lv !== S.max) return false;
       for (var i = 0; i < (it.g || []).length; i++) if (S.blocked.indexOf(it.g[i]) >= 0) return false;
       return true;
     });
+    if (!list.length) list = src.filter(function (it) { return it.lv === S.max; });
     if (!list.length) list = src.filter(function (it) { return it.lv <= S.max; });
     if (!list.length) list = src;
     return list;
@@ -617,11 +818,12 @@
       inTurn = false;
       log({ lvl: S.max, t: 'dare', x: '{self} ' + got.act + ' {other} 的' + got.part }, 'done');
       S.score[S.turn]++;
-      S.heat++;
+      var who = S.turn;
       S.mult = 1;
       save(); shut(); hud();
-      toast('热度 +1');
-      bumpHeat();
+      armCheck(who); save(); hud();
+      toast(selfN() + ' +1 张');
+      afterScore();
       next();
     };
   }
@@ -739,7 +941,8 @@
     h += '<li><b>谁受罚</b>　默认轮流。但点上面两个人的名字可以直接换人——<b>别的游戏输了也能直接点他</b>。</li>';
     h += '<li><b>做不到</b>　点「认输」抽一张代价卡。躲是可以躲的，就是要付钱。</li>';
     h += '<li><b>真心话</b>　写下来的答案进「真心话」，<b>结束一局也不会清掉</b>，跨局一直留着。</li>';
-    h += '<li><b>热度</b>　每完成一张加一点，每满 ' + HEAT_STEP + ' 点解锁一次「终极」，里面是最狠的那几张，而且是<b>对方</b>替你抽。</li>';
+    h += '<li><b>终极模式</b>　谁的积分先攒到 <b>4 张</b>，他下次受罚就进终极模式：<b>由对方</b>指定玩哪一种，三个盒子内容全部摊开让对方挑——翻牌子也是对方点动作和部位。</li>';
+    h += '<li><b>升级</b>　两个人加起来做满 ' + LEVEL_UP_AT + ' 张，会问你升不升一档。下面那个等级按钮随时能点，点了题目立刻跟着换。</li>';
     h += '<li><b>安全词</b>　说出来立刻停，抱六十秒。不用解释，不算输。</li>';
     h += '</ul><button class="btn primary" id="ok">知道了</button>';
     sheet(h);
@@ -845,7 +1048,7 @@
     h += '<div class="sum">';
     h += '<div class="sum-row"><span>' + esc(S.names[0]) + '</span><b>' + S.score[0] + ' 张</b></div>';
     h += '<div class="sum-row"><span>' + esc(S.names[1]) + '</span><b>' + S.score[1] + ' 张</b></div>';
-    h += '<div class="sum-row total"><span>一共做了 ' + drew + ' 张 · 热度 ' + S.heat + '</span><b>第 ' + ((S.sessions || 0) + 1) + ' 局</b></div>';
+    h += '<div class="sum-row total"><span>一共做了 ' + drew + ' 张</span><b>第 ' + ((S.sessions || 0) + 1) + ' 局</b></div>';
     h += '</div>';
 
     if (S.truths.length) {
@@ -863,7 +1066,8 @@
       S.sessions = (S.sessions || 0) + 1;
       S.history = [];           // 只清本局
       S.score = [0, 0];
-      S.heat = 0; S.mult = 1; S.ultUsed = 0; S.round = 1;
+      S.mult = 1; S.round = 1;
+      S.armed = [0, 0]; S.ultPending = [false, false]; S.prompted16 = false;
       S.toke = [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }];
       S.seen = []; S.needed = [];
       save(); hud(); shut(); showSpin();
@@ -871,7 +1075,8 @@
     };
     $('#fs-home').onclick = function () {
       S.sessions = (S.sessions || 0) + 1;
-      S.history = []; S.score = [0, 0]; S.heat = 0; S.ultUsed = 0; S.round = 1;
+      S.history = []; S.score = [0, 0]; S.round = 1;
+      S.armed = [0, 0]; S.ultPending = [false, false]; S.prompted16 = false;
       S.toke = [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }];
       S.seen = []; S.needed = [];
       save(); shut();
@@ -908,15 +1113,7 @@
     $('#ok').onclick = shut;
   }
 
-  function ultOpen() {
-    if (charges() <= 0) return;
-    S.ultUsed = (S.ultUsed || 0) + 1;
-    S.turn = 1 - S.turn;
-    hud();
-    chord([196, 262, 330, 392]);
-    toast('轮到 ' + selfN() + ' 抽');
-    setTimeout(function () { show(draw(null, true), false); }, 700);
-  }
+
 
   /* ── 特效 ── */
   function hearts() {
@@ -961,9 +1158,10 @@
 
   function freshStart() {
     readSetup();
-    S.turn = 0; S.round = 1; S.heat = 0; S.score = [0, 0]; S.mult = 1;
+    S.turn = 0; S.round = 1; S.score = [0, 0]; S.mult = 1;
+    S.armed = [0, 0]; S.ultPending = [false, false]; S.prompted16 = false;
     S.toke = [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }];
-    S.history = []; S.seen = []; S.needed = []; S.ultUsed = 0;
+    S.history = []; S.seen = []; S.needed = [];
     save();
     enterGame();
   }
@@ -986,7 +1184,7 @@
     $('#spin-main').onclick = spinMain;
     $('#respins').onclick = function () { showSpin(); };
     $('#dice').onclick = openDice;
-    $('#ult').onclick = ultOpen;
+    $('#lv-chip').onclick = openLevelPicker;
     $('#menu').onclick = openMenuList;
     $('#safe-line').onclick = safeStop;
     $('#ov-x').onclick = dismiss;
@@ -997,7 +1195,9 @@
   function init() {
     S = load() || blank();
     if (S.mult == null) S.mult = 1;
-    if (S.ultUsed == null) S.ultUsed = 0;
+    if (!Array.isArray(S.armed)) S.armed = [0, 0];
+    if (!Array.isArray(S.ultPending)) S.ultPending = [false, false];
+    if (S.prompted16 == null) S.prompted16 = false;
     if (S.sessions == null) S.sessions = 0;
     if (!S.truths) S.truths = [];
     if (!S.needed) S.needed = [];
@@ -1018,7 +1218,7 @@
     if (S.history.length) {
       var b = $('#btn-resume');
       b.classList.remove('hide');
-      b.textContent = '接着上一局（' + S.history.length + ' 条 · 热度 ' + S.heat + '）';
+      b.textContent = '接着上一局（' + S.history.length + ' 条 · 已做 ' + (S.score[0] + S.score[1]) + ' 张）';
       b.onclick = enterGame;
     }
   }

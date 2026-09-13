@@ -54,19 +54,22 @@ const dupList = Object.keys(dupes).filter(k => dupes[k] > 1);
 check('没有重复文案（同文重复 ' + dupList.length + ' 处）', dupList.length === 0, dupList.slice(0, 2).join(' / '));
 check('高级别卡够多（Lv3+Lv4）', all.filter(c => c.lvl >= 3).length >= 70, '实际 ' + all.filter(c => c.lvl >= 3).length);
 
-console.log('\n── 特殊卡 ──');
+console.log('\n── 特殊（反转 / 幸运现在是文案池，不是卡）──');
 const SP = win.SPECIAL;
-check('反转卡 ≥3 张', SP.reverse.length >= 3, '实际 ' + SP.reverse.length);
-check('幸运卡 ≥5 张', SP.lucky.length >= 5, '实际 ' + SP.lucky.length);
+check('反转文案池是字符串数组', Array.isArray(SP.reverse) && SP.reverse.every(x => typeof x === 'string' && x.length > 4));
+check('幸运文案池是字符串数组', Array.isArray(SP.lucky) && SP.lucky.every(x => typeof x === 'string' && x.length > 4));
+check('反转文案 ≥3 条', SP.reverse.length >= 3, '实际 ' + SP.reverse.length);
+check('幸运文案 ≥4 条', SP.lucky.length >= 4, '实际 ' + SP.lucky.length);
+check('反转文案都用到了 {other}', SP.reverse.every(x => x.includes('{other}')));
 check('代价卡 ≥8 张', SP.cost.length >= 8, '实际 ' + SP.cost.length);
-check('幸运卡 idx0/1/2 是真发卡（app.js 依赖这三个下标）', SP.lucky[0].x.includes('免罚卡') && SP.lucky[1].x.includes('反转卡') && SP.lucky[2].x.includes('免罚'));
-check('代价卡都非空且带 t 字段', SP.cost.every(c => c.t === 'cost' && typeof c.x === 'string' && c.x.trim().length > 0));
+check('代价卡都是卡对象', SP.cost.every(c => c.t === 'cost' && typeof c.x === 'string' && c.x.trim().length > 0));
 check('代价卡没有重复文案', new Set(SP.cost.map(c => c.x)).size === SP.cost.length);
-check('特殊卡标签也都在登记表里', [...SP.reverse, ...SP.lucky, ...SP.cost].every(c => (c.g || []).every(g => TAGS.indexOf(g) >= 0)));
+check('代价卡标签都在登记表里', SP.cost.every(c => (c.g || []).every(g => TAGS.indexOf(g) >= 0)));
+check('代价卡不再出现「没有拒绝权」这种硬表述', !SP.cost.some(c => /没有拒绝权/.test(c.x)));
 
 console.log('\n── 红线过滤不变式（模拟 app.js 的 allowed()）──');
 function allowed(c, blocked, maxLevel) {
-  if (c.lvl > maxLevel) return false;
+  if (c.lvl !== maxLevel) return false;   // 严格等级：选了 Lv4 就只出 Lv4
   return !c.g.some(g => blocked.indexOf(g) >= 0);
 }
 function drawType(list, type, blocked, maxLevel, forceTop, seen) {
@@ -78,7 +81,7 @@ function drawType(list, type, blocked, maxLevel, forceTop, seen) {
   if (!l.length) {
     l = list.filter(c => c.t === 'dare' && allowed(c, blocked, maxLevel));
     if (!l.length) l = list.filter(c => allowed(c, blocked, maxLevel));
-    if (!l.length) l = list.filter(c => c.lvl <= maxLevel);
+    if (!l.length) l = list.filter(c => c.lvl === maxLevel);
     if (!l.length) l = list.slice();
   }
   let fresh = l.filter(c => seen.indexOf(c.id) < 0);
@@ -96,12 +99,12 @@ for (let trial = 0; trial < 400; trial++) {
     const type = TYPES[Math.floor(Math.random() * 4)];
     const c = drawType(all, type, blocked, maxLevel, Math.random() < 0.2, seen);
     if (!c) { violations.push('抽到 undefined'); continue; }
-    if (c.lvl > maxLevel) violations.push('超出等级上限 ' + c.lvl + '>' + maxLevel);
+    if (c.lvl !== maxLevel) violations.push('等级不对 ' + c.lvl + ' != ' + maxLevel);
     if (c.g.some(g => blocked.indexOf(g) >= 0)) violations.push('抽到了被屏蔽的标签 ' + c.g);
     if (c.id) seen.push(c.id);
   }
 }
-check('400 轮 × 25 抽，从不越界、从不抽到被屏蔽的标签', violations.length === 0, violations.slice(0, 3).join(' ; '));
+check('400 轮 × 25 抽，题目永远是当前等级、从不抽到被屏蔽的标签', violations.length === 0, violations.slice(0, 3).join(' ; '));
 
 console.log('\n── 极端设置 ──');
 let crash = null;
@@ -140,67 +143,54 @@ check('老虎机条目字段都合法', slotBad.length === 0, slotBad.slice(0, 3
 check('动作无重复', new Set(SLOT.act.map(a => a.x)).size === SLOT.act.length);
 check('部位无重复', new Set(SLOT.part.map(p => p.x)).size === SLOT.part.length);
 [1, 2, 3, 4].forEach(lv => {
-  const a = SLOT.act.filter(x => x.lv <= lv).length;
-  const p = SLOT.part.filter(x => x.lv <= lv).length;
-  check('Lv' + lv + ' 尺度下组合够多（' + a + '×' + p + '=' + a * p + '）', a * p >= 40);
+  const a = SLOT.act.filter(x => x.lv === lv).length;
+  const p = SLOT.part.filter(x => x.lv === lv).length;
+  check('Lv' + lv + ' 本档组合够多（' + a + '×' + p + '=' + a * p + '）', a * p >= 64);
 });
 check('Lv1 动作与部位都够多样', SLOT.act.filter(x => x.lv === 1).length >= 6 && SLOT.part.filter(x => x.lv === 1).length >= 6,
   'act ' + SLOT.act.filter(x => x.lv === 1).length + ' / part ' + SLOT.part.filter(x => x.lv === 1).length);
 check('Lv1 不含露骨部位', !SLOT.part.some(p => p.lv === 1 && /大腿|胸口|臀|肚脐/.test(p.x)));
 
-/* 权重分布：确定性地验，采样 2 万次，不受单次手气影响。
-   app.js 用的就是同一个 window.slotWeight，改公式这里会挂。 */
-console.log('\n── 转轮加权：越玩越热 ──');
+/* 严格等级之后，同一档内权重相同；这里验的是每档词量够不够、组合够不够翻。
+   真正要防的回归是：有人把等级过滤改回 <= ，Lv1 的词会渗进 Lv4。 */
+console.log('\n── 翻牌子：严格按等级 ──');
 const W = win.slotWeight;
 check('slotWeight 存在且递增', typeof W === 'function' && W(1) < W(2) && W(2) < W(3) && W(3) < W(4),
   [1, 2, 3, 4].map(W).join(','));
 
-function share(kind, maxLv, lv) {
-  const list = SLOT[kind].filter(it => it.lv <= maxLv);
-  const total = list.reduce((s, it) => s + W(it.lv), 0);
-  const part = list.filter(it => it.lv === lv).reduce((s, it) => s + W(it.lv), 0);
-  return part / total;
-}
-function uniformShare(kind, maxLv, lv) {
-  const list = SLOT[kind].filter(it => it.lv <= maxLv);
-  return list.filter(it => it.lv === lv).length / list.length;
-}
+[1, 2, 3, 4].forEach(lv => {
+  const a = SLOT.act.filter(x => x.lv === lv).length;
+  const p = SLOT.part.filter(x => x.lv === lv).length;
+  console.log('   Lv' + lv + '　' + a + ' 动作 × ' + p + ' 部位 = ' + (a * p) + ' 种组合');
+  check('Lv' + lv + ' 动作和部位都 ≥8 个', a >= 8 && p >= 8, a + ' / ' + p);
+  check('Lv' + lv + ' 组合数 ≥64，不容易重复', a * p >= 64, (a * p) + ' 种');
+});
 
-[1, 2, 3, 4].forEach(maxLv => {
-  const hi = share('act', maxLv, maxLv), lo = share('act', maxLv, 1);
-  const hiU = uniformShare('act', maxLv, maxLv), loU = uniformShare('act', maxLv, 1);
-  console.log('   Lv' + maxLv + '　最高档占比 ' + (hi * 100).toFixed(0) + '%'
-    + '（不加权只有 ' + (hiU * 100).toFixed(0) + '%）　最低档 ' + (lo * 100).toFixed(0) + '%');
-  if (maxLv === 1) {
-    check('Lv1 只有一档，无所谓权重', true);
-  } else {
-    check('Lv' + maxLv + ' 最高档比最低档更容易抽到', hi > lo, (hi * 100).toFixed(0) + '% vs ' + (lo * 100).toFixed(0) + '%');
-    check('Lv' + maxLv + ' 最高档占比高于均匀分布', hi > hiU + 0.05, (hi * 100).toFixed(0) + '% vs ' + (hiU * 100).toFixed(0) + '%');
+// 模拟 app.js 的 slotList：严格只取本档
+function slotPick(lv, kind, blocked) {
+  let list = SLOT[kind].filter(it => it.lv === lv && !(it.g || []).some(g => blocked.indexOf(g) >= 0));
+  if (!list.length) list = SLOT[kind].filter(it => it.lv === lv);
+  if (!list.length) list = SLOT[kind].filter(it => it.lv <= lv);
+  return list[Math.floor(Math.random() * list.length)];
+}
+let slotBad2 = [];
+for (let lv = 1; lv <= 4; lv++) {
+  for (let i = 0; i < 300; i++) {
+    const a = slotPick(lv, 'act', []), p = slotPick(lv, 'part', []);
+    if (!a || !p) { slotBad2.push('Lv' + lv + ' 抽到 undefined'); continue; }
+    if (a.lv !== lv) slotBad2.push('Lv' + lv + ' 抽到 Lv' + a.lv + ' 的动作 ' + a.x);
+    if (p.lv !== lv) slotBad2.push('Lv' + lv + ' 抽到 Lv' + p.lv + ' 的部位 ' + p.x);
   }
-});
-
-// 两个轮子同时抽到最高档的概率——这是"解锁了却抽不到"的关键指标
-// 等级越高，加权带来的提升越大（Lv2 只有一级可升，提升自然小）
-const MIN_BOOST = { 2: 1.8, 3: 3, 4: 5 };
-[2, 3, 4].forEach(maxLv => {
-  const both = share('act', maxLv, maxLv) * share('part', maxLv, maxLv);
-  const bothU = uniformShare('act', maxLv, maxLv) * uniformShare('part', maxLv, maxLv);
-  const boost = both / bothU;
-  console.log('   Lv' + maxLv + '　两个轮子都到最高档：' + (both * 100).toFixed(1) + '%（不加权 ' + (bothU * 100).toFixed(1) + '%，提升 ' + boost.toFixed(1) + ' 倍）');
-  check('Lv' + maxLv + ' 双最高档概率提升 ≥' + MIN_BOOST[maxLv] + ' 倍', boost >= MIN_BOOST[maxLv], '实测 ' + boost.toFixed(1) + ' 倍');
-});
-
-// 真按权重抽 2 万次，确认实际分布跟算出来的一致
-let hit = 0, N = 20000;
-const l3 = SLOT.act.filter(it => it.lv <= 3);
-const tot = l3.reduce((s, it) => s + W(it.lv), 0);
-for (let i = 0; i < N; i++) {
-  let r = Math.random() * tot;
-  for (const it of l3) { r -= W(it.lv); if (r <= 0) { if (it.lv === 3) hit++; break; } }
 }
-const measured = hit / N, expected = share('act', 3, 3);
-check('实际抽样分布符合权重（差 < 3%）', Math.abs(measured - expected) < 0.03,
-  '实测 ' + (measured * 100).toFixed(1) + '% vs 理论 ' + (expected * 100).toFixed(1) + '%');
+check('4 档 × 300 次，从不出别档的词', slotBad2.length === 0, slotBad2.slice(0, 3).join(' ; '));
+
+// 红线标签仍然生效
+let slotBad3 = [];
+for (let i = 0; i < 200; i++) {
+  const a = slotPick(4, 'act', ['痕迹']);
+  if ((a.g || []).indexOf('痕迹') >= 0) slotBad3.push('关掉痕迹后仍抽到 ' + a.x);
+}
+check('关掉「痕迹」后 Lv4 不再出留印类的词', slotBad3.length === 0, slotBad3.slice(0, 3).join(' ; '));
 
 console.log('\n── 尺寸与道具 ──');
 check('道具清单 12 项且无重复', PROPS.length === 12 && new Set(PROPS).size === 12, '实际 ' + PROPS.length);

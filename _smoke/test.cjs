@@ -84,8 +84,8 @@ async function boot(base, seed) {
   check('进入游戏页', $('#sc-game').classList.contains('on'));
   check('名字正确', $('#n-0').textContent === '阿离' && $('#n-1').textContent === '小满');
   check('第一步是转盘，不是盲盒', !$('#step-spin').classList.contains('hide') && $('#step-pick').classList.contains('hide'));
-  check('热度 0/8', $('#heat-txt').textContent === '0 / 8');
-  check('终极按钮初始禁用', $('#ult').disabled === true);
+  check('升级进度初始 0/16', $('#heat-txt').textContent === '0 / 16', $('#heat-txt').textContent);
+  check('没有终极按钮了（终极改成自动触发）', $('#ult') === null);
 
   console.log('\n── 3 · 手动换人（别的游戏输了）──');
   check('初始轮到第一个人', $('#who-0').classList.contains('on'));
@@ -120,12 +120,12 @@ async function boot(base, seed) {
     $$('.box')[0].click();
     check('开出卡片', await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 4000));
     const kind = $('.c-kind').textContent;
-    check('卡片类型 = 转盘结果，或是意外卡', kind === landed || ['反转', '幸运'].includes(kind), kind);
+    check('卡片类型 = 转盘结果，或是反转/幸运', kind === landed || ['幸运'].includes(kind), kind);
     const txt = $('.c-text').textContent;
     check('正文占位符已替换', !txt.includes('{') && txt.length > 4, txt.slice(0, 30));
     const before = $('#turn').textContent;
     $('#done').click();
-    check('结算后热度 +1', await until(() => $('#heat-txt').textContent.startsWith('1 /'), 2000), $('#heat-txt').textContent);
+    check('结算后进度 +1', await until(() => $('#heat-txt').textContent.startsWith('1 /'), 2000), $('#heat-txt').textContent);
     check('结算后回到转盘步骤', !$('#step-spin').classList.contains('hide'));
     check('结算后换人', $('#turn').textContent !== before, $('#turn').textContent);
   }
@@ -147,8 +147,23 @@ async function boot(base, seed) {
   $('#ov-body [data-m="pick"]').click(); await until(() => $('#ov-body [data-t="punish"]'));
   $('#ov-body [data-t="punish"]').click();
   await until(() => !$('#step-pick').classList.contains('hide'), 3000);
-  $$('.box')[2].click();
-  await until(() => $('.c-text'), 4000);
+  // 盒子有 4% 出幸运卡，那张没有认输按钮；出到就跳过重新抽
+  let gotCard = false;
+  for (let tryN = 0; tryN < 5 && !gotCard; tryN++) {
+    if (!$('#ov').classList.contains('hide')) shut();
+    await wait(200);
+    if ($('#step-pick').classList.contains('hide')) {
+      $('#menu').click(); await until(() => $('#ov-body [data-m="pick"]'));
+      $('#ov-body [data-m="pick"]').click(); await until(() => $('#ov-body [data-t="punish"]'));
+      $('#ov-body [data-t="punish"]').click();
+      await until(() => !$('#step-pick').classList.contains('hide'), 3000);
+    }
+    $$('.box')[tryN % 3].click();
+    if (!await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 5000)) continue;
+    if ($('#done') && $('.c-kind').textContent === '幸运') { $('#done').click(); await wait(400); continue; }
+    gotCard = true;
+  }
+  check('抽到了真卡（不是幸运跳过）', gotCard);
   check('有认输按钮', !!$('#give'));
   if ($('#give')) {
     $('#give').click();
@@ -176,7 +191,7 @@ async function boot(base, seed) {
   check('翻出的词都来自词表', win.SLOT.act.some(i => i.x === actTxt) && win.SLOT.part.some(i => i.x === partTxt));
   const heatB = parseInt($('#heat-txt').textContent, 10);
   $('#slot-done').click(); await wait(400);
-  check('翻牌子计入热度', parseInt($('#heat-txt').textContent, 10) === heatB + 1, $('#heat-txt').textContent);
+  check('翻牌子计入进度', parseInt($('#heat-txt').textContent, 10) === heatB + 1, $('#heat-txt').textContent);
 
   console.log('\n── 8.5 · 中途关掉不能卡死（回归）──');
   // 曾经：转到翻牌子 → 点 ✕ 关掉 → 转盘按钮还禁用着、盒子也没了，整个卡住
@@ -208,51 +223,105 @@ async function boot(base, seed) {
   await wait(1600);
   if (!$('#ov').classList.contains('hide') && $('#done')) { $('#done').click(); await wait(400); }
 
-  console.log('\n── 10 · 攒热度 → 终极 ──');
-  // 完整打完一手：转到翻牌子就把两个轮子翻完，不然这一圈不计分
-  async function playTurn() {
-    if (!$('#ov').classList.contains('hide')) shut();
-    await wait(150);
-    if (!$('#step-pick').classList.contains('hide')) {
-      $$('.box')[0].click();
-      if (await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 4000)) {
-        if ($('#done')) $('#done').click();
-        await wait(450);
-      }
-      return;
-    }
-    $('#spin-main').click();
-    await until(() => TYPES.includes($('#mw-say').textContent), 9000);
-    await wait(1100);
-    if ($('#reel-act')) {
-      $('#spin-act').click(); await until(() => !$('#spin-act').disabled, 6000);
-      $('#spin-part').click(); await until(() => !$('#spin-part').disabled, 6000);
-      if ($('#slot-done') && !$('#slot-done').classList.contains('hide')) $('#slot-done').click();
-      await wait(450);
-      return;
-    }
-    if (!$('#step-pick').classList.contains('hide')) {
-      $$('.box')[1].click();
-      if (await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 4000)) {
-        if ($('#done')) $('#done').click();
-        await wait(450);
-      }
-    }
-  }
-  let guard = 0;
-  while (parseInt($('#heat-txt').textContent, 10) < 8 && guard++ < 14) {
-    await playTurn();
-  }
-  check('热度到 8', parseInt($('#heat-txt').textContent, 10) >= 8, $('#heat-txt').textContent);
-  check('终极解锁', $('#ult').disabled === false);
+  console.log('\n── 10 · 升级进度与等级按钮 ──');
+  check('页面上有等级按钮', !!$('#lv-chip'));
+  check('等级按钮显示当前档位', $('#lv-chip').textContent.includes('Lv3'), $('#lv-chip').textContent);
+  check('进度条文案是「已做 / 16」', /\/ 16$/.test($('#heat-txt').textContent), $('#heat-txt').textContent);
+  $('#lv-chip').click();
+  check('点等级按钮弹出选择', await until(() => $$('#ov-body [data-lv]').length === 4, 3000), '实际 ' + $$('#ov-body [data-lv]').length);
+  check('当前档位有标记', !!$('#ov-body [data-lv="3"]') && $('#ov-body [data-lv="3"]').classList.contains('cur'));
+  $('#ov-body [data-lv="1"]').click();
+  await wait(400);
+  check('切到 Lv1 后按钮跟着变', $('#lv-chip').textContent.includes('Lv1'), $('#lv-chip').textContent);
+  check('切档后回到转盘步骤', !$('#step-spin').classList.contains('hide'));
 
-  console.log('\n── 11 · 终极盲盒只出真卡 ──');
-  $('#ult').click();
-  check('弹出卡片', await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 4000));
-  const ultKind = $('.c-kind').textContent;
-  check('终极不会给幸运/反转这种奖励卡', !['幸运', '反转'].includes(ultKind), ultKind);
-  check('终极抽的是最高档 Lv3', $('.c-top').textContent.includes('Lv3'), $('.c-top').textContent);
-  if ($('#done')) { $('#done').click(); await wait(400); }
+  console.log('\n── 10.5 · 严格等级：只出当前档的题 ──');
+  let leaked = [], drew = 0;
+  for (let i = 0; i < 8; i++) {
+    if (i > 0) {
+      if (!$('#ov').classList.contains('hide')) shut();
+      await wait(150);
+    }
+    $('#menu').click(); await until(() => $('#ov-body [data-m="pick"]'));
+    $('#ov-body [data-m="pick"]').click();
+    const t = ['dare', 'punish', 'truth', 'duo'][i % 4];
+    if (!await until(() => $('#ov-body [data-t="' + t + '"]'), 2000)) break;
+    $('#ov-body [data-t="' + t + '"]').click();
+    if (!await until(() => !$('#step-pick').classList.contains('hide'), 3000)) break;
+    $$('.box')[i % 3].click();
+    if (!await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 5000)) break;
+    if ($('.c-kind').textContent === '幸运') {   // 4% 的跳过卡，没有等级，不算数
+      $('#done').click(); await wait(400); continue;
+    }
+    const lv = $('.c-top').textContent.match(/Lv(\d)/);
+    if (!lv) { leaked.push('卡片没有等级标记'); }
+    else if (lv[1] !== '1') leaked.push('Lv1 里抽到了 Lv' + lv[1]);
+    drew++;
+    if ($('#done')) { $('#done').click(); await wait(400); }
+  }
+  check('抽了 ' + drew + ' 张 Lv1 的卡', drew >= 6, '只抽到 ' + drew);
+  check('🔥 一张都没混进别的等级', leaked.length === 0, leaked.slice(0, 3).join(' ; '));
+
+  console.log('\n── 10.6 · 翻牌子也只出当前档 ──');
+  $('#menu').click(); await until(() => $('#ov-body [data-m="pick"]'));
+  $('#ov-body [data-m="pick"]').click();
+  await until(() => $('#ov-body [data-t="slot"]'));
+  $('#ov-body [data-t="slot"]').click();
+  await until(() => $('#spin-act'));
+  $('#spin-act').click(); await until(() => !$('#spin-act').disabled, 7000);
+  $('#spin-part').click(); await until(() => !$('#spin-part').disabled, 7000);
+  const sAct = $('#reel-act span').textContent, sPart = $('#reel-part span').textContent;
+  check('翻出的动作属于当前档（' + sAct + '）', win.SLOT.act.some(x => x.x === sAct && x.lv === 1), sAct);
+  check('翻出的部位属于当前档（' + sPart + '）', win.SLOT.part.some(x => x.x === sPart && x.lv === 1), sPart);
+  $('#slot-done').click(); await wait(400);
+
+  console.log('\n── 11 · 反转 / 幸运 / 代价 +2 ──');
+  // 直接验概率常量和它们的效果，比等随机触发可靠
+  const src = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
+  check('反转概率是 4%', /REVERSE_P\s*=\s*0\.04/.test(src));
+  check('幸运概率是 4%', /LUCKY_P\s*=\s*0\.04/.test(src));
+
+  // 代价卡：做完积分 +2
+  const before2 = Number($('#s-0').textContent) + Number($('#s-1').textContent);
+  $('#menu').click(); await until(() => $('#ov-body [data-m="pick"]'));
+  $('#ov-body [data-m="pick"]').click(); await until(() => $('#ov-body [data-t="punish"]'));
+  $('#ov-body [data-t="punish"]').click();
+  await until(() => !$('#step-pick').classList.contains('hide'), 3000);
+  $$('.box')[0].click();
+  await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 5000);
+  if ($('.c-kind') && $('.c-kind').textContent === '幸运') { $('#done').click(); await wait(400); }
+  if (await until(() => $('#give'), 4000)) {
+    $('#give').click();
+    if (await until(() => $('.c-kind') && $('.c-kind').textContent === '代价', 3000)) {
+      check('代价卡提示了「做完积分 +2」', $('#ov-body').textContent.includes('+2'), '');
+      $('#done').click(); await wait(500);
+      const after2 = Number($('#s-0').textContent) + Number($('#s-1').textContent);
+      check('代价做完积分 +2（' + before2 + ' → ' + after2 + '）', after2 === before2 + 2, '差 ' + (after2 - before2));
+    }
+  }
+  if (!$('#ov').classList.contains('hide')) { shut(); await wait(200); }
+
+  console.log('\n── 11.5 · 两人合计 16 张 → 问要不要升级 ──');
+  // 上面代价 +2 正好把合计推到 16，这里应该自动弹升级询问
+  const combinedNow = Number($('#s-0').textContent) + Number($('#s-1').textContent);
+  check('合计已经到 ' + combinedNow + ' 张', combinedNow >= 16, '实际 ' + combinedNow);
+  const asked = await until(() => $('#lu-yes') || $('#lu-no'), 4000);
+  if (asked) {
+    check('自动弹出升级询问', true);
+    check('提示里写明了合计张数', $('#ov-body').textContent.includes(String(combinedNow)), $('#ov-body').textContent.slice(0, 60));
+    check('有「升到 Lv2」和「先不升」两个选择', !!$('#lu-yes') && !!$('#lu-no'));
+    $('#lu-no').click(); await wait(300);
+    check('选「先不升」后弹层关闭', $('#ov').classList.contains('hide'));
+    check('等级按钮仍高亮可升级', $('#lv-chip').classList.contains('ready'));
+    // 从等级按钮升上去
+    $('#lv-chip').click(); await wait(200);
+    check('从等级按钮也能升', await until(() => $('#ov-body [data-lv="2"]'), 2000));
+    $('#ov-body [data-lv="2"]').click(); await wait(400);
+    check('升档后等级按钮变成 Lv2', $('#lv-chip').textContent.includes('Lv2'), $('#lv-chip').textContent);
+  } else {
+    check('自动弹出升级询问', false, '没弹出来');
+  }
+  if (!$('#ov').classList.contains('hide')) { shut(); await wait(200); }
 
   console.log('\n── 12 · 记录与真心话 ──');
   if (!$('#ov').classList.contains('hide')) shut();
@@ -289,7 +358,7 @@ async function boot(base, seed) {
   check('本局记录已清空', after.history.length === 0, '实际 ' + after.history.length);
   check('🔥 真心话没被清掉（' + after.truths.length + ' 条）', after.truths.length === truthsBefore);
   check('分数归零', after.score[0] === 0 && after.score[1] === 0);
-  check('热度归零', after.heat === 0);
+  check('积分归零', after.score[0] === 0 && after.score[1] === 0);
   check('局数 +1', after.sessions === 1, 'sessions=' + after.sessions);
   check('回到转盘步骤', !$('#step-spin').classList.contains('hide'));
   check('免罚卡/反转卡重置', after.toke[0].skip === 1 && after.toke[0].rev === 1);
@@ -322,7 +391,7 @@ async function boot(base, seed) {
   check('尺度回填 Lv4', d2.querySelector('#lv button.on').dataset.lv === '4');
   d2.querySelector('#btn-resume').click(); await wait(300);
   check('点进游戏页', d2.querySelector('#sc-game').classList.contains('on'));
-  check('热度恢复 5', d2.querySelector('#heat-txt').textContent === '5 / 8', d2.querySelector('#heat-txt').textContent);
+  check('Lv4 存档显示「已满档」而不是升级目标', d2.querySelector('#heat-txt').textContent.includes('已满档'), d2.querySelector('#heat-txt').textContent);
   check('分数恢复 6/4', d2.querySelector('#s-0').textContent === '6' && d2.querySelector('#s-1').textContent === '4');
   check('回合恢复给第二人', d2.querySelector('#turn').textContent.includes('小满'), d2.querySelector('#turn').textContent);
   d2.querySelector('#menu').click(); await wait(200);
