@@ -27,6 +27,7 @@
   var tick = null;
   var pending = null;      // 转盘定下来的类型
   var pendingReverse = false;  // 这把抽到反转，内容整个归对方
+  var pendingLevelAsk = false; // 升级询问在中途被打断时挂起，等空闲了再问
   var inTurn = false;      // 手上有张没结算的卡
 
   /* ── 声音 ── */
@@ -425,12 +426,26 @@
     next();
   }
 
-  /* 两人积分之和到 16 就问一次要不要升级 */
+  /* 两人积分之和到 16 就问一次要不要升级。
+     不能想弹就弹——比如正在掷骰子、正在看卡，弹出来会把人家手上的东西顶掉。
+     所以等到「一手结束、回到转盘那一步」再问。 */
   function afterScore() {
     if (S.max >= 4 || S.prompted16 || combined() < LEVEL_UP_AT) return;
     S.prompted16 = true;
     save();
-    setTimeout(askLevelUp, 700);
+    pendingLevelAsk = true;
+    setTimeout(maybeAskLevel, 700);
+  }
+
+  function maybeAskLevel() {
+    if (!pendingLevelAsk) return;
+    var idle = $('#ov').classList.contains('hide')
+            && !inTurn && !busy
+            && $('#sc-game').classList.contains('on')
+            && !$('#step-spin').classList.contains('hide');
+    if (!idle) { setTimeout(maybeAskLevel, 400); return; }
+    pendingLevelAsk = false;
+    askLevelUp();
   }
 
   function askLevelUp() {
@@ -650,13 +665,24 @@
     var acts = slotList('act'), parts = slotList('part');
     var pickAct = null, pickPart = null;
     $('#ult-sub').innerHTML = '由 <b>' + esc(otherN()) + '</b> 滑着选，给 <b>' + esc(selfN()) + '</b>。';
-    var h = '<p class="spec-h">动作　<span class="sw-hint">← 滑动 →</span></p>';
+    var h = '<p class="spec-h">动作　<span class="sw-hint">点箭头、直接拖，或者左右滑</span></p>';
+    h += '<div class="sw-row">';
+    h += '<button class="sw-arrow" data-for="sw-act" data-dir="-1" aria-label="上一个">◀</button>';
     h += '<div class="swipe" id="sw-act">';
     acts.forEach(function (a, i) { h += '<button data-a="' + i + '">' + esc(a.x) + '</button>'; });
-    h += '</div><p class="spec-h">部位　<span class="sw-hint">← 滑动 →</span></p>';
+    h += '</div>';
+    h += '<button class="sw-arrow" data-for="sw-act" data-dir="1" aria-label="下一个">▶</button>';
+    h += '</div>';
+
+    h += '<p class="spec-h">部位　<span class="sw-hint">点箭头、直接拖，或者左右滑</span></p>';
+    h += '<div class="sw-row">';
+    h += '<button class="sw-arrow" data-for="sw-part" data-dir="-1" aria-label="上一个">◀</button>';
     h += '<div class="swipe" id="sw-part">';
     parts.forEach(function (p, i) { h += '<button data-p="' + i + '">' + esc(p.x) + '</button>'; });
     h += '</div>';
+    h += '<button class="sw-arrow" data-for="sw-part" data-dir="1" aria-label="下一个">▶</button>';
+    h += '</div>';
+
     h += '<button class="btn primary" id="u-go" disabled>确定</button>';
     h += '<button class="btn ghost" id="u-back">换一种模式</button>';
     $('#ult-body').innerHTML = h;
@@ -668,12 +694,34 @@
         ? '确定：' + selfN() + ' ' + acts[pickAct].x + ' ' + otherN() + ' 的' + parts[pickPart].x
         : '确定';
     }
+
+    /* 左右箭头：鼠标也能用。按一格宽度滚动，滚完由 onscroll 吸附并选中 */
+    function step(box) {
+      var first = box.querySelector('button');
+      return (first && first.offsetWidth ? first.offsetWidth : 88) + 9;
+    }
+    function nudge(box, dir) {
+      var dx = dir * step(box);
+      if (box.scrollBy) box.scrollBy({ left: dx, behavior: 'smooth' });
+      else box.scrollLeft += dx;
+    }
+    function syncArrows(id) {
+      var box = $('#' + id);
+      if (!box) return;
+      var max = box.scrollWidth - box.clientWidth;
+      $$('#ult-body .sw-arrow[data-for="' + id + '"]').forEach(function (a) {
+        var dir = +a.dataset.dir;
+        a.disabled = max <= 1 ? false : (dir < 0 ? box.scrollLeft <= 1 : box.scrollLeft >= max - 1);
+      });
+    }
+
     function wire(id, list, key, set) {
       var box = $('#' + id);
-      $$('#' + id + ' button').forEach(function (b) {
+      var btns = $$('#' + id + ' button');
+      btns.forEach(function (b) {
         b.onclick = function () {
           set(+b.dataset[key]);
-          $$('#' + id + ' button').forEach(function (x) { x.classList.remove('on'); });
+          btns.forEach(function (x) { x.classList.remove('on'); });
           b.classList.add('on');
           beep(660, 0.05, 'square');
           refresh();
@@ -684,19 +732,26 @@
       // 滑动停下来时，把最靠中间的那个选中
       var t = null;
       box.onscroll = function () {
+        syncArrows(id);
         clearTimeout(t);
         t = setTimeout(function () {
           var mid = box.scrollLeft + box.clientWidth / 2, best = 0, bd = 1e9;
-          $$('#' + id + ' button').forEach(function (b, i) {
+          btns.forEach(function (b, i) {
             var c = b.offsetLeft + b.offsetWidth / 2, d = Math.abs(c - mid);
             if (d < bd) { bd = d; best = i; }
           });
-          $$('#' + id + ' button').forEach(function (x) { x.classList.remove('on'); });
-          $$('#' + id + ' button')[best].classList.add('on');
+          btns.forEach(function (x) { x.classList.remove('on'); });
+          btns[best].classList.add('on');
           set(best); refresh();
         }, 130);
       };
+      syncArrows(id);
     }
+
+    $$('#ult-body .sw-arrow').forEach(function (a) {
+      a.onclick = function () { nudge($('#' + a.dataset.for), +a.dataset.dir); };
+    });
+
     wire('sw-act', acts, 'a', function (i) { pickAct = i; });
     wire('sw-part', parts, 'p', function (i) { pickPart = i; });
     $('#u-back').onclick = ultTypeStep;

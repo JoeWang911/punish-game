@@ -282,11 +282,14 @@ input[type=text]:focus{
 @keyframes breathe{0%,100%{opacity:.7;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
 .mw{
   position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;
-  border:6px solid transparent;
+  /* 边框必须是实色。之前写成 transparent + background-clip:padding-box，
+     那 7px 边框区就没东西盖住，底下的页面背景直接透出来（就是漏色） */
+  border:7px solid #2b1626;
   background-clip:padding-box;
   box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,.10),
-    0 0 0 6px rgba(232,189,124,.16),
+    inset 0 0 0 1px rgba(255,255,255,.09),
+    0 0 0 1px rgba(232,189,124,.55),
+    0 0 0 9px rgba(0,0,0,.34),
     0 20px 46px -16px rgba(0,0,0,.95);
   transition:transform 4s var(--ease);
 }
@@ -459,27 +462,46 @@ input[type=text]:focus{
 }
 
 /* ─────────── 滑动选择 ─────────── */
-.swipe{
-  display:flex;gap:9px;overflow-x:auto;scroll-snap-type:x mandatory;
-  padding:3px 0 14px;margin-bottom:6px;
-  scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;
-  mask-image:linear-gradient(90deg,transparent,#000 18px,#000 calc(100% - 18px),transparent);
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 18px,#000 calc(100% - 18px),transparent);
-}
-.swipe::-webkit-scrollbar{display:none}
-.swipe button{
-  flex:0 0 auto;scroll-snap-align:center;cursor:pointer;font:inherit;
-  font-size:14.5px;font-weight:600;padding:13px 22px;border-radius:99px;
+.sw-row{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.sw-row .swipe{flex:1;min-width:0;margin-bottom:0;padding-bottom:8px}
+.sw-arrow{
+  flex:none;width:38px;height:38px;cursor:pointer;border-radius:50%;
   background:var(--surf);border:1px solid var(--line);color:var(--txt-2);
-  box-shadow:var(--edge);white-space:nowrap;
+  font-size:13px;line-height:1;box-shadow:var(--edge);
   transition:.18s var(--ease);
 }
-.swipe button:hover{color:var(--txt);border-color:var(--line-2)}
+.sw-arrow:hover:not(:disabled){
+  color:#fff;border-color:var(--rose);
+  background:linear-gradient(180deg,rgba(255,77,126,.32),rgba(201,32,90,.32));
+}
+.sw-arrow:active:not(:disabled){transform:scale(.9)}
+.sw-arrow:disabled{opacity:.22;cursor:not-allowed}
+
+.swipe{
+  display:flex;gap:9px;overflow-x:auto;scroll-snap-type:x mandatory;
+  padding:4px 2px 8px;
+  scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;
+  scroll-behavior:smooth;
+  mask-image:linear-gradient(90deg,transparent,#000 16px,#000 calc(100% - 16px),transparent);
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 16px,#000 calc(100% - 16px),transparent);
+}
+.swipe::-webkit-scrollbar{display:none}
+/* 未选：灰色、小一号、压暗 */
+.swipe button{
+  flex:0 0 auto;scroll-snap-align:center;cursor:pointer;font:inherit;
+  font-size:13.5px;font-weight:500;padding:11px 18px;border-radius:99px;
+  background:rgba(0,0,0,.28);border:1px solid var(--line);color:var(--txt-3);
+  white-space:nowrap;transform:scale(.94);
+  transition:transform .22s var(--ease), background .22s var(--ease),
+             color .22s var(--ease), box-shadow .22s var(--ease), font-size .22s var(--ease);
+}
+.swipe button:hover{color:var(--txt-2);border-color:var(--line-2)}
+/* 选中：加粗、加大、白底黑字，对比拉满 */
 .swipe button.on{
-  background:linear-gradient(180deg,#ff7ba2,var(--rose) 45%,#d92460);
-  border-color:var(--rose);color:#fff;font-weight:800;
-  transform:scale(1.07);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.35), 0 8px 22px -6px rgba(255,77,126,.7);
+  background:linear-gradient(180deg,#fff,#ffe3ec);
+  border-color:#fff;color:#17070f;font-weight:800;font-size:15.5px;
+  padding:13px 22px;transform:scale(1.06);
+  box-shadow:0 10px 26px -8px rgba(255,255,255,.45), 0 0 0 3px rgba(255,77,126,.3);
 }
 
 /* ─────────── 弹层 ─────────── */

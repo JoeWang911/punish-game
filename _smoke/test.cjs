@@ -218,8 +218,8 @@ async function boot(base, seed) {
   check('骰子按钮是「谁受罚」', $('#dice').textContent.includes('谁受罚'), $('#dice').textContent);
   $('#dice').click(); await until(() => $('#roll'));
   $('#roll').click();
-  check('两边都掷出点数', await until(() => /\d+/.test($('#p0').textContent) && /\d+/.test($('#p1').textContent), 4000),
-    $('#p0').textContent + ' / ' + $('#p1').textContent);
+  const rolled = await until(() => $('#p0') && $('#p1') && /\d+/.test($('#p0').textContent) && /\d+/.test($('#p1').textContent), 4000);
+  check('两边都掷出点数', rolled, $('#p0') ? $('#p0').textContent + ' / ' + $('#p1').textContent : '(骰子面板不见了)');
   await wait(1600);
   if (!$('#ov').classList.contains('hide') && $('#done')) { $('#done').click(); await wait(400); }
 
@@ -305,26 +305,15 @@ async function boot(base, seed) {
   }
   if (!$('#ov').classList.contains('hide')) { shut(); await wait(200); }
 
-  console.log('\n── 11.5 · 两人合计 16 张 → 问要不要升级 ──');
-  // 上面代价 +2 正好把合计推到 16，这里应该自动弹升级询问
+  console.log('\n── 11.5 · 等级按钮可以升级 ──');
+  // 合计过 16 之后等级按钮应该进入「可升级」状态（升级询问本身在另一段单独验）
   const combinedNow = Number($('#s-0').textContent) + Number($('#s-1').textContent);
   check('合计已经到 ' + combinedNow + ' 张', combinedNow >= 16, '实际 ' + combinedNow);
-  const asked = await until(() => $('#lu-yes') || $('#lu-no'), 4000);
-  if (asked) {
-    check('自动弹出升级询问', true);
-    check('提示里写明了合计张数', $('#ov-body').textContent.includes(String(combinedNow)), $('#ov-body').textContent.slice(0, 60));
-    check('有「升到 Lv2」和「先不升」两个选择', !!$('#lu-yes') && !!$('#lu-no'));
-    $('#lu-no').click(); await wait(300);
-    check('选「先不升」后弹层关闭', $('#ov').classList.contains('hide'));
-    check('等级按钮仍高亮可升级', $('#lv-chip').classList.contains('ready'));
-    // 从等级按钮升上去
-    $('#lv-chip').click(); await wait(200);
-    check('从等级按钮也能升', await until(() => $('#ov-body [data-lv="2"]'), 2000));
-    $('#ov-body [data-lv="2"]').click(); await wait(400);
-    check('升档后等级按钮变成 Lv2', $('#lv-chip').textContent.includes('Lv2'), $('#lv-chip').textContent);
-  } else {
-    check('自动弹出升级询问', false, '没弹出来');
-  }
+  check('等级按钮进入可升级状态', $('#lv-chip').classList.contains('ready'));
+  $('#lv-chip').click(); await wait(250);
+  check('点等级按钮能打开选择', await until(() => $('#ov-body [data-lv="2"]'), 2000));
+  $('#ov-body [data-lv="2"]').click(); await wait(400);
+  check('升档后等级按钮变成 Lv2', $('#lv-chip').textContent.includes('Lv2'), $('#lv-chip').textContent);
   if (!$('#ov').classList.contains('hide')) { shut(); await wait(200); }
 
   console.log('\n── 12 · 记录与真心话 ──');
@@ -585,6 +574,59 @@ async function boot(base, seed) {
   const seenKeys = Object.keys(seenTypes);
   check('转盘只出这 5 种（外加反转/幸运两种截胡）', seenKeys.length > 0 && seenKeys.every(k => TYPES.includes(k) || k === '反转！' || k === '幸运！'), seenKeys.join('/'));
   check('转了 ' + seenKeys.length + ' 种结果：' + JSON.stringify(seenTypes), seenKeys.length >= 2, JSON.stringify(seenTypes));
+
+  console.log('\n── 21 · 升级询问（干净场景）──');
+  // 主流程里分数是随机涨上去的，可能早就过了 16，测不准。
+  // 这里种一个「15 张、还没问过」的状态，跨过 16 时应该问一次。
+  const lvSeed = {
+    names: ['阿离', '小满'], safe: '菠萝', max: 2, blocked: [], turn: 0, round: 3,
+    score: [10, 5], mult: 1, armed: [0, 0], ultPending: [false, false], prompted16: false,
+    toke: [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }], needed: [], seen: [],
+    history: [{ at: Date.now(), who: '阿离', lvl: 2, t: 'dare', x: '占位', st: 'done', ans: '' }],
+    truths: [], sessions: 0
+  };
+  const dom7 = await boot(base, lvSeed);
+  const w7 = dom7.window, d7 = w7.document;
+  const $lv = s => d7.querySelector(s);
+  const $$lv = s => Array.from(d7.querySelectorAll(s));
+  d7.querySelector('#btn-resume').click();
+  await wait(400);
+  check('开局合计 15 张，还没到线', $lv('#s-0').textContent === '10' && $lv('#s-1').textContent === '5');
+  check('此时等级按钮没高亮', !$lv('#lv-chip').classList.contains('ready'));
+  check('此时不弹升级询问', !$lv('#lu-yes'));
+
+  // 认输拿代价，一次 +2，跨过 16
+  $lv('#menu').click(); await wait(250);
+  $lv('#ov-body [data-m="pick"]').click(); await wait(250);
+  $lv('#ov-body [data-t="punish"]').click();
+  await wait(500);
+  $$lv('.box')[0].click();
+  await wait(1500);
+  if ($lv('#give')) { $lv('#give').click(); await wait(800); }
+  if ($lv('#done')) { $lv('#done').click(); await wait(700); }
+
+  const after7 = Number($lv('#s-0').textContent) + Number($lv('#s-1').textContent);
+  check('合计跨过 16（现在 ' + after7 + '）', after7 >= 16, '实际 ' + after7);
+  check('自动弹出升级询问', await until(() => $lv('#lu-yes'), 6000), $lv('#ov-body') ? $lv('#ov-body').textContent.slice(0, 40) : '(没有弹层)');
+  if ($lv('#lu-yes')) {
+    check('写明升到哪一档', $lv('#lu-yes').textContent.includes('Lv3'), $lv('#lu-yes').textContent);
+    check('有「先不升」', !!$lv('#lu-no'));
+    $lv('#lu-no').click(); await wait(300);
+    check('选「先不升」后弹层关掉', $lv('#ov').classList.contains('hide'));
+    check('不升的话等级没变', $lv('#lv-chip').textContent.includes('Lv2'), $lv('#lv-chip').textContent);
+    check('按钮保持可升级状态', $lv('#lv-chip').classList.contains('ready'));
+    // 这次真升
+    $lv('#menu').click(); await wait(250);
+    if ($lv('#ov-body [data-m="pick"]')) {
+      $lv('#ov-x').click(); await wait(250);
+    }
+    $lv('#lv-chip').click(); await wait(250);
+    check('再打开等级选择', await until(() => $lv('#ov-body [data-lv="3"]'), 2000));
+    $lv('#ov-body [data-lv="3"]').click(); await wait(500);
+    check('升到 Lv3 成功', $lv('#lv-chip').textContent.includes('Lv3'), $lv('#lv-chip').textContent);
+    check('不会再弹第二次升级询问', !$lv('#lu-yes'));
+  }
+  dom7.window.close();
 
   console.log('\n════════════════════════');
   console.log('  通过 ' + pass + '，失败 ' + fail);
