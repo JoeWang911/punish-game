@@ -233,7 +233,11 @@ async function boot(base, seed) {
   $('#ov-body [data-lv="1"]').click();
   await wait(400);
   check('切到 Lv1 后按钮跟着变', $('#lv-chip').textContent.includes('Lv1'), $('#lv-chip').textContent);
-  check('切档后回到转盘步骤', !$('#step-spin').classList.contains('hide'));
+  // 走到第 10 步时可能已经有人攒够 4 张了，那种情况下换档后会落在终极舞台，
+  // 而不是转盘——两者都是「可以继续」的状态
+  check('切档后回到可继续的状态',
+    !$('#step-spin').classList.contains('hide') || !$('#step-ult').classList.contains('hide'),
+    '转盘 ' + !$('#step-spin').classList.contains('hide') + ' / 终极 ' + !$('#step-ult').classList.contains('hide'));
 
   console.log('\n── 10.5 · 严格等级：只出当前档的题 ──');
   let leaked = [], drew = 0;
@@ -418,8 +422,7 @@ async function boot(base, seed) {
   check('老存档里的真心话被迁移过来', d3.querySelector('#tb').innerHTML.includes('喘气'), d3.querySelector('#tb').innerHTML.slice(0, 80));
   dom3.window.close();
 
-  console.log('\n── 18 · 终极模式（对方指定一切）──');
-  // 直接把状态种成「阿离的积分已经攒够，下次受罚进终极」
+  console.log('\n── 18 · 终极模式：页面内上演，不弹窗 ──');
   const ultSeed = {
     names: ['阿离', '小满'], safe: '菠萝', max: 3, blocked: [], turn: 0, round: 5,
     score: [4, 2], mult: 1, armed: [1, 0], ultPending: [true, false], prompted16: false,
@@ -433,64 +436,155 @@ async function boot(base, seed) {
   const $$4 = s => Array.from(d4.querySelectorAll(s));
   d4.querySelector('#btn-resume').click();
   await wait(400);
-  check('受罚方攒够时自动进终极模式（没转转盘）', await until(() => $4('#ov-body') && $4('#ov-body').textContent.includes('终极模式'), 3000));
-  check('写明由对方决定', $4('#ov-body').textContent.includes('小满'), $4('#ov-body').textContent.slice(0, 50));
-  check('五种模式都能选', $$4('#ov-body [data-u]').length === 5, '实际 ' + $$4('#ov-body [data-u]').length);
+
+  check('没有弹窗，改用页面内的终极舞台', await until(() => !$4('#step-ult').classList.contains('hide'), 3000));
+  check('弹层没有被打开', $4('#ov').classList.contains('hide'));
+  check('写明了是谁攒够的', $4('#ult-sub').textContent.includes('阿离') && $4('#ult-sub').textContent.includes('4'), $4('#ult-sub').textContent);
+  check('没有直接跳到选模式（先问谁受罚）', $4('#ult-body').textContent.includes('谁受罚'));
+
+  console.log('\n── 18.1 · 可以改「谁受罚」──');
+  check('两个人都能选', $$4('#ult-who [data-w]').length === 2, '实际 ' + $$4('#ult-who [data-w]').length);
+  check('默认选中攒够的那位', $4('#ult-who [data-w="0"]').classList.contains('on'));
+  check('按钮默认写着让阿离受罚', $4('#ult-go').textContent.includes('阿离'), $4('#ult-go').textContent);
+  $4('#ult-who [data-w="1"]').click(); await wait(200);
+  check('点另一个人就换过去', $4('#ult-who [data-w="1"]').classList.contains('on') && !$4('#ult-who [data-w="0"]').classList.contains('on'));
+  check('按钮文案跟着变', $4('#ult-go').textContent.includes('小满'), $4('#ult-go').textContent);
+  $4('#ult-who [data-w="0"]').click(); await wait(200);
+  check('能换回来', $4('#ult-who [data-w="0"]').classList.contains('on'));
+
+  $4('#ult-go').click(); await wait(400);
+  check('进入后由对方指定模式', $4('#ult-sub').textContent.includes('小满'), $4('#ult-sub').textContent);
+  check('五种模式都能选', $$4('#ult-body .ult-mode').length === 5, '实际 ' + $$4('#ult-body .ult-mode').length);
   check('终极标记已消耗掉', JSON.parse(w4.localStorage.getItem('punish-game-v1')).ultPending[0] === false);
 
-  // 分支 A：选惩罚 → 三个盒子内容摊开
-  $4('#ov-body [data-u="punish"]').click();
+  console.log('\n── 18.2 · 盒子全部爆开 ──');
+  $$4('#ult-body [data-u="punish"]')[0].click();
   await wait(300);
-  check('开出三个摊开的选项', $$4('#ov-body .opt').length === 3, '实际 ' + $$4('#ov-body .opt').length);
-  const optTexts = $$4('#ov-body .opt-x').map(x => x.textContent.trim());
-  check('选项内容直接可见（不是问号）', optTexts.every(t => t.length > 4 && !t.includes('？')), optTexts[0] && optTexts[0].slice(0, 24));
-  check('三个选项内容互不相同', new Set(optTexts).size === 3);
-  check('每个选项都标了等级', $$4('#ov-body .opt-k').every(k => /Lv3/.test(k.textContent)), $$4('#ov-body .opt-k')[0] && $$4('#ov-body .opt-k')[0].textContent);
-  $$4('#ov-body .opt')[1].click();
-  await wait(400);
+  check('出现三个盒子', $$4('#burst .b-box').length === 3, '实际 ' + $$4('#burst .b-box').length);
+  check('刚出现时盖子是盖着的', !$$4('#burst .b-box')[0].classList.contains('open'));
+  check('盖子会依次打开（有错开延迟）', $$4('#burst .b-lid').every(l => /transition-delay/.test(l.getAttribute('style'))), '');
+  check('盒子带爆开动画', $$4('#burst .b-box').every(b => /animation-delay/.test(b.getAttribute('style'))));
+  await until(() => $$4('#burst .b-box').every(b => b.classList.contains('open')), 4000);
+  check('三个盖子全开了', $$4('#burst .b-box').every(b => b.classList.contains('open')));
+  const optTexts = $$4('#burst .opt-x').map(x => x.textContent.trim());
+  check('内容直接摊开（不是问号）', optTexts.every(t => t.length > 4), optTexts[0] && optTexts[0].slice(0, 20));
+  check('三张内容互不相同', new Set(optTexts).size === 3);
+  check('每张都标了等级', $$4('#burst .opt-k').every(k => /Lv3/.test(k.textContent)));
+
+  $$4('#burst .b-box')[1].click();
+  await wait(700);
   check('选中的卡弹出来了', await until(() => $4('.c-text') && !$4('#ov').classList.contains('hide'), 3000));
   check('卡片上有终极横幅', $4('.banner.ult') && $4('.banner.ult').textContent.includes('终极模式'));
   check('横幅写明是谁指定的', $4('.banner.ult').textContent.includes('小满'), $4('.banner.ult').textContent);
   check('卡主是攒够的那位（阿离）', $4('.c-who').textContent === '阿离', $4('.c-who').textContent);
-  check('这张卡的内容正是被挑中的那个', $4('.c-text').textContent.trim() === optTexts[1], $4('.c-text').textContent.slice(0, 30));
+  check('内容正是被挑中的那个', $4('.c-text').textContent.trim() === optTexts[1], $4('.c-text').textContent.slice(0, 26));
   if ($4('#done')) { $4('#done').click(); await wait(500); }
 
-  console.log('\n── 19 · 终极模式里的翻牌子：对方点动作和部位 ──');
+  console.log('\n── 18.3 · 终极里选了「另一个人受罚」 ──');
+  const ultSeed3 = JSON.parse(JSON.stringify(ultSeed));
+  ultSeed3.ultPending = [true, false];
+  const dom6 = await boot(base, ultSeed3);
+  const d6 = dom6.window.document;
+  const $6 = s => d6.querySelector(s);
+  const $$6 = s => Array.from(d6.querySelectorAll(s));
+  d6.querySelector('#btn-resume').click(); await wait(400);
+  await until(() => $6('#ult-who [data-w="1"]'), 3000);
+  $6('#ult-who [data-w="1"]').click(); await wait(150);
+  $6('#ult-go').click(); await wait(350);
+  check('进入指定模式那一步（写给阿离）', $6('#ult-sub').textContent.includes('指定'), $6('#ult-sub').textContent);
+  check('受罚方是小满', $6('#ult-sub').textContent.includes('小满'), $6('#ult-sub').textContent);
+  const modeBtn = $$6('#ult-body [data-u="punish"]')[0];
+  check('终极里能选惩罚', !!modeBtn, $6('#ult-body').innerHTML.slice(0, 70));
+  if (modeBtn) {
+    modeBtn.click();
+    const okBurst = await until(() => $6('#burst .b-box'), 4000);
+    check('选了模式后三个盒子出现', okBurst, $6('#ult-body').innerHTML.slice(0, 90));
+    if (okBurst) {
+      $$6('#burst .b-box')[0].click();
+      await until(() => $6('.c-text'), 3000);
+      check('卡主换成了小满（连坐成立）', $6('.c-who') && $6('.c-who').textContent === '小满', $6('.c-who') && $6('.c-who').textContent);
+      if ($6('#done')) { $6('#done').click(); await wait(400); }
+    }
+  }
+  dom6.window.close();
+
+  console.log('\n── 19 · 终极里的翻牌子：滑动选择 ──');
   const ultSeed2 = JSON.parse(JSON.stringify(ultSeed));
-  ultSeed2.turn = 0;
-  ultSeed2.score = [4, 1];
-  ultSeed2.ultPending = [true, false];
   const dom5 = await boot(base, ultSeed2);
   const w5 = dom5.window, d5 = w5.document;
   const $5 = s => d5.querySelector(s);
   const $$5 = s => Array.from(d5.querySelectorAll(s));
   d5.querySelector('#btn-resume').click(); await wait(400);
-  await until(() => $5('#ov-body [data-u="slot"]'), 3000);
-  $5('#ov-body [data-u="slot"]').click();
-  await wait(300);
-  check('弹出动作与部位两组选项', $$5('#ov-body [data-a]').length > 0 && $$5('#ov-body [data-p]').length > 0,
-    '动作 ' + $$5('#ov-body [data-a]').length + ' / 部位 ' + $$5('#ov-body [data-p]').length);
-  check('没选之前「确定」是禁用的', $5('#u-go').disabled === true);
-  check('选项只来自当前档（Lv3）', $$5('#ov-body [data-a]').every(b => w5.SLOT.act.some(x => x.x === b.textContent && x.lv === 3)),
-    $$5('#ov-body [data-a]').map(b => b.textContent).join('/'));
-  $$5('#ov-body [data-a]')[2].click(); await wait(120);
-  check('选了一个动作后还是禁用（部位没选）', $5('#u-go').disabled === true);
-  $$5('#ov-body [data-p]')[1].click(); await wait(150);
-  check('两个都选了「确定」才可用', $5('#u-go').disabled === false);
-  const pickAct = $$5('#ov-body [data-a]')[2].textContent, pickPart = $$5('#ov-body [data-p]')[1].textContent;
+  await until(() => $5('#ult-go'), 3000);
+  $5('#ult-go').click(); await wait(350);
+  await until(() => $5('#ult-body [data-u="slot"]'), 2500);
+  $5('#ult-body [data-u="slot"]').click(); await wait(350);
+  check('动作和部位都是滑动条', !!$5('#sw-act') && !!$5('#sw-part'));
+  check('滑动条里是按钮不是输入框', $$5('#sw-act button').length > 0 && $$5('#sw-part button').length > 0,
+    '动作 ' + $$5('#sw-act button').length + ' / 部位 ' + $$5('#sw-part button').length);
+  check('滑动条有 scroll-snap 类名（可滑动选择）', $5('#sw-act').className.includes('swipe'));
+  check('没选之前「确定」禁用', $5('#u-go').disabled === true);
+  check('选项只来自当前档（Lv3）', $$5('#sw-act button').every(b => w5.SLOT.act.some(x => x.x === b.textContent && x.lv === 3)),
+    $$5('#sw-act button').map(b => b.textContent).join('/'));
+  $$5('#sw-act button')[2].click(); await wait(200);
+  check('选了一个动作还是禁用', $5('#u-go').disabled === true);
+  $$5('#sw-part button')[1].click(); await wait(200);
+  check('两个都选了才可用', $5('#u-go').disabled === false);
+  check('选中的项有高亮', $$5('#sw-act button.on').length === 1 && $$5('#sw-part button.on').length === 1);
+  const pickAct = $$5('#sw-act button')[2].textContent, pickPart = $$5('#sw-part button')[1].textContent;
   check('按钮上预览了结果', $5('#u-go').textContent.includes(pickAct) && $5('#u-go').textContent.includes(pickPart), $5('#u-go').textContent);
-  $5('#u-go').click(); await wait(500);
+  $5('#u-go').click();
+  await until(() => $5('.c-text'), 3000);
   const finalTxt = $5('.c-text') ? $5('.c-text').textContent : '(没有卡片)';
-  check('出的正是对方点的那一套（' + pickAct + ' × ' + pickPart + '）', finalTxt.includes(pickAct) && finalTxt.includes(pickPart), finalTxt);
+  check('出的正是对方滑选的那一套（' + pickAct + ' × ' + pickPart + '）', finalTxt.includes(pickAct) && finalTxt.includes(pickPart), finalTxt);
   check('这句话带上了两个人的名字', finalTxt.includes('阿离') && finalTxt.includes('小满'), finalTxt);
-  // 对方只是「指定」，做还是得被指定的那位自己做，做完才加分
-  check('指定之后卡主仍是攒够的那位', !!$5('.c-who') && $5('.c-who').textContent === '阿离', $5('.c-who') && $5('.c-who').textContent);
+  check('指定之后卡主仍是受罚方', !!$5('.c-who') && $5('.c-who').textContent === '阿离', $5('.c-who') && $5('.c-who').textContent);
   const before5 = JSON.parse(w5.localStorage.getItem('punish-game-v1')).score[0];
   if ($5('#done')) { $5('#done').click(); await wait(500); }
   const s5 = JSON.parse(w5.localStorage.getItem('punish-game-v1'));
   check('做完了才 +1（' + before5 + ' → ' + s5.score[0] + '）', s5.score[0] === before5 + 1, 'score=' + s5.score.join('/'));
   dom5.window.close();
   dom4.window.close();
+
+  console.log('\n── 20 · 转盘：五格等概率 + 极小概率的反转 / 幸运 ──');
+  const src2 = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
+  check('五个扇区不再带权重字段 w', !/k: '\w+',\s*n: '[^']+',\s*w:/.test(src2), '');
+  check('扇区跨度是 360/5（等分）', /360\s*\/\s*SECTORS\.length/.test(src2));
+  check('反转 4% 且不在扇区列表里', /REVERSE_P\s*=\s*0\.04/.test(src2) && !/k: 'reverse'/.test(src2));
+  check('幸运 4% 且不在扇区列表里', /LUCKY_P\s*=\s*0\.04/.test(src2) && !/k: 'lucky'/.test(src2));
+  check('截胡发生在转盘那一步（不是开盒）', /twist = roll < REVERSE_P/.test(src2));
+  check('反转会把整把交给对方', /pendingReverse = true/.test(src2));
+  // 实转若干次，确认五格都出得来、且没有第七种结果。
+  // 每次都要把这一手走完，否则回不到转盘那一步。
+  const seenTypes = {};
+  async function spinOnce() {
+    if (!$('#ov').classList.contains('hide')) { shut(); await wait(250); }
+    if ($('#step-spin').classList.contains('hide')) return null;
+    $('#spin-main').click();
+    const okSpin = await until(() => TYPES.includes($('#mw-say').textContent) || ['反转！', '幸运！'].includes($('#mw-say').textContent), 9000);
+    if (!okSpin) return null;
+    const got = $('#mw-say').textContent;
+    await wait(2400);                       // 等它跳到下一步
+    if ($('#reel-act')) { shut(); await wait(250); return got; }   // 翻牌子，关掉即可
+    if (!$('#ov').classList.contains('hide') && $('.c-kind') && $('.c-kind').textContent === '幸运') {
+      $('#done').click(); await wait(500); return got;
+    }
+    if (!$('#step-pick').classList.contains('hide')) {
+      $$('.box')[0].click();
+      if (await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 6000)) {
+        if ($('#done')) $('#done').click();
+        await wait(500);
+      }
+    }
+    return got;
+  }
+  for (let i = 0; i < 8; i++) {
+    const got = await spinOnce();
+    if (got) seenTypes[got] = (seenTypes[got] || 0) + 1;
+  }
+  const seenKeys = Object.keys(seenTypes);
+  check('转盘只出这 5 种（外加反转/幸运两种截胡）', seenKeys.length > 0 && seenKeys.every(k => TYPES.includes(k) || k === '反转！' || k === '幸运！'), seenKeys.join('/'));
+  check('转了 ' + seenKeys.length + ' 种结果：' + JSON.stringify(seenTypes), seenKeys.length >= 2, JSON.stringify(seenTypes));
 
   console.log('\n════════════════════════');
   console.log('  通过 ' + pass + '，失败 ' + fail);

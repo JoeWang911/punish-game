@@ -26,6 +26,7 @@
   var busy = false;
   var tick = null;
   var pending = null;      // 转盘定下来的类型
+  var pendingReverse = false;  // 这把抽到反转，内容整个归对方
   var inTurn = false;      // 手上有张没结算的卡
 
   /* ── 声音 ── */
@@ -481,22 +482,20 @@
   /* ============================================================
    *  第一步：转类型
    * ============================================================ */
+  /* 转盘：五种玩法概率一模一样，各 72°。
+     反转 / 幸运不画在盘上，是转完之后另掷一次的极小概率。 */
   var SECTORS = [
-    { k: 'truth',  n: '真心话', w: 1.1, c: '#a81c50' },
-    { k: 'dare',   n: '大冒险', w: 1.3, c: '#3a1030' },
-    { k: 'punish', n: '惩罚',   w: 1.3, c: '#a81c50' },
-    { k: 'duo',    n: '一起做', w: 0.7, c: '#3a1030' },
-    { k: 'slot',   n: '翻牌子', w: 0.6, c: '#6d1b4c' }
+    { k: 'truth',  n: '真心话', c: '#a81c50' },
+    { k: 'dare',   n: '大冒险', c: '#3a1030' },
+    { k: 'punish', n: '惩罚',   c: '#a81c50' },
+    { k: 'duo',    n: '一起做', c: '#3a1030' },
+    { k: 'slot',   n: '翻牌子', c: '#6d1b4c' }
   ];
 
   function layout() {
-    var total = SECTORS.reduce(function (s, x) { return s + x.w; }, 0);
-    var acc = 0;
-    return SECTORS.map(function (s) {
-      var span = s.w / total * 360;
-      var o = { s: s, start: acc, span: span, mid: acc + span / 2 };
-      acc += span;
-      return o;
+    var span = 360 / SECTORS.length;
+    return SECTORS.map(function (s, i) {
+      return { s: s, start: i * span, span: span, mid: i * span + span / 2 };
     });
   }
 
@@ -515,122 +514,201 @@
 
   function showSpin() {
     pending = null;
+    pendingReverse = false;
     busy = false;
     inTurn = false;
-    // 这个人积分攒够了，这次受罚直接进终极模式，不转转盘
-    if (S.ultPending && S.ultPending[S.turn]) {
-      S.ultPending[S.turn] = false;
-      save(); hud();
-      startUltimate();
-      return;
-    }
+    hide($('#step-ult'), true);
+    // 这个人攒够了，这一把走终极模式——但整段在页面里演，不直接弹窗
+    if (S.ultPending && S.ultPending[S.turn]) { ultimateIntro(); return; }
     hide($('#step-spin'), false);
     hide($('#step-pick'), true);
     $('#mw-say').textContent = '转一下，看这把玩什么';
+    $('#mw-say').className = 'mw-say';
     $('#spin-main').disabled = false;
     if (!$('#mw').innerHTML) paintWheel();
   }
 
   /* ============================================================
    *  终极模式
-   *  积分先到 4 的那位，下次受罚时：对方指定模式，三个盒子亮着让对方挑
+   *  攒够的那位触发，但「谁受罚」可以改——对方也可能连坐。
+   *  整段流程都在页面上演：谁受罚 → 选模式 → 盒子全部爆开
    * ============================================================ */
-  function startUltimate() {
-    var victim = selfN(), chooser = otherN();
-    var h = '<h3 class="ov-h">🌋 终极模式</h3>';
-    h += '<p class="ov-p"><b>' + esc(victim) + '</b> 的积分先攒够了。<br>这一把由 <b>' + esc(chooser) + '</b> 说了算——选一种模式。</p>';
-    h += '<div class="menu-list">';
-    h += '<button data-u="truth"><em>💬</em>真心话</button>';
-    h += '<button data-u="dare"><em>🎯</em>大冒险</button>';
-    h += '<button data-u="punish"><em>⚡</em>惩罚</button>';
-    h += '<button data-u="duo"><em>💞</em>一起做</button>';
-    h += '<button data-u="slot"><em>🎰</em>翻牌子<s>动作和部位都由你点</s></button>';
-    h += '</div>';
-    sheet(h);
+  function ultimateIntro() {
+    var armed = S.turn;
+    hide($('#step-spin'), true);
+    hide($('#step-pick'), true);
+    hide($('#step-ult'), false);
+    $('#step-ult').classList.remove('ignite');
+    void $('#step-ult').offsetWidth;          // 重启动画
+    $('#step-ult').classList.add('ignite');
+    $('#ult-sub').innerHTML = '<b>' + esc(S.names[armed]) + '</b> 先攒够了 ' + ULT_EVERY + ' 张，这一把进终极模式。';
     chord([196, 262, 330, 392]);
-    $$('#ov-body [data-u]').forEach(function (b) {
+    buzz([50, 40, 50, 40, 120]);
+    ultWhoStep(armed);
+  }
+
+  function ultWhoStep(armed) {
+    var h = '<p class="spec-h">这次谁受罚</p><div class="who-pick" id="ult-who">';
+    [0, 1].forEach(function (i) {
+      h += '<button data-w="' + i + '"' + (i === armed ? ' class="on"' : '') + '>'
+        + esc(S.names[i]) + (i === armed ? '<small>攒够的那位</small>' : '<small>要换人点这里</small>') + '</button>';
+    });
+    h += '</div><button class="btn primary" id="ult-go">进入终极模式</button>';
+    $('#ult-body').innerHTML = h;
+    var victim = armed;
+    $$('#ult-body [data-w]').forEach(function (b) {
       b.onclick = function () {
-        var k = b.dataset.u;
-        if (k === 'slot') ultimateSlotSpec();
-        else ultimateChooseCard(k);
+        victim = +b.dataset.w;
+        $$('#ult-body [data-w]').forEach(function (x) { x.classList.remove('on'); });
+        b.classList.add('on');
+        beep(660, 0.05, 'square');
+        $('#ult-go').textContent = '让 ' + S.names[victim] + ' 受罚';
+      };
+    });
+    $('#ult-go').textContent = '让 ' + S.names[armed] + ' 受罚';
+    $('#ult-go').onclick = function () {
+      S.ultPending[armed] = false;
+      S.turn = victim;
+      save(); hud();
+      ultTypeStep();
+    };
+  }
+
+  function ultTypeStep() {
+    var chooser = otherN();
+    $('#ult-sub').innerHTML = '由 <b>' + esc(chooser) + '</b> 指定玩哪一种，给 <b>' + esc(selfN()) + '</b>。';
+    var h = '<div class="ult-modes">';
+    [['truth', '💬', '真心话'], ['dare', '🎯', '大冒险'], ['punish', '⚡', '惩罚'],
+     ['duo', '💞', '一起做'], ['slot', '🎰', '翻牌子']].forEach(function (m, i) {
+      h += '<button class="ult-mode" data-u="' + m[0] + '" style="animation-delay:' + (i * 70) + 'ms">'
+        + '<em>' + m[1] + '</em>' + m[2] + '</button>';
+    });
+    h += '</div>';
+    $('#ult-body').innerHTML = h;
+    $$('#ult-body [data-u]').forEach(function (b) {
+      b.onclick = function () {
+        beep(700, 0.07, 'square');
+        if (b.dataset.u === 'slot') ultimateSlotSpec();
+        else ultimateBurst(b.dataset.u);
       };
     });
   }
 
-  /* 三个盒子亮着，内容直接给对方看，让对方挑一个 */
-  function ultimateChooseCard(type) {
+  /* 三个盒子一起炸开，内容直接摊在桌面上 */
+  function ultimateBurst(type) {
     var cards = [];
     for (var i = 0; i < 3; i++) cards.push(draw(type));
-
-    var h = '<h3 class="ov-h">挑一张</h3>';
-    h += '<p class="ov-p">三个盒子的内容都摊开了，由 <b>' + esc(otherN()) + '</b> 挑一个给 <b>' + esc(selfN()) + '</b>。</p>';
-    h += '<div class="opts">';
+    $('#ult-sub').innerHTML = '由 <b>' + esc(otherN()) + '</b> 挑一张给 <b>' + esc(selfN()) + '</b>。';
+    var h = '<div class="burst" id="burst">';
     cards.forEach(function (c, i) {
-      h += '<button class="opt" data-i="' + i + '">'
+      h += '<button class="b-box" data-i="' + i + '" style="animation-delay:' + (i * 130) + 'ms">'
+        + '<span class="b-lid" style="transition-delay:' + (420 + i * 130) + 'ms">🎁</span>'
+        + '<span class="b-in" style="animation-delay:' + (560 + i * 130) + 'ms">'
         + '<span class="opt-k">' + KIND[c.t].n + ' · Lv' + c.lvl + '</span>'
-        + '<span class="opt-x">' + fill(c.x) + '</span></button>';
+        + '<span class="opt-x">' + fill(c.x) + '</span></span></button>';
     });
     h += '</div><button class="btn ghost" id="u-back">换一种模式</button>';
-    sheet(h);
-    $$('#ov-body .opt').forEach(function (b) {
+    $('#ult-body').innerHTML = h;
+    chord([880, 1046, 1318]);
+    buzz([30, 40, 60]);
+
+    setTimeout(function () {
+      $$('#burst .b-box').forEach(function (b) { b.classList.add('open'); });
+    }, 380);
+
+    $$('#burst .b-box').forEach(function (b) {
       b.onclick = function () {
         var c = cards[+b.dataset.i];
         c.ultimate = true;
         c.chosenBy = otherN();
-        shut();
-        setTimeout(function () { show(c, false); }, 220);
+        explode(b);
+        setTimeout(function () { show(c, false); }, 420);
       };
     });
-    $('#u-back').onclick = startUltimate;
+    $('#u-back').onclick = ultTypeStep;
   }
 
-  /* 翻牌子：动作和部位都由对方点 */
+  function explode(el) {
+    var r = el.getBoundingClientRect();
+    for (var i = 0; i < 10; i++) {
+      var s = document.createElement('span');
+      s.className = 'spark';
+      s.textContent = pick(['✨', '💥', '⭐', '🔥']);
+      s.style.left = (r.left + r.width / 2) + 'px';
+      s.style.top = (r.top + r.height / 2) + 'px';
+      s.style.setProperty('--dx', (rnd(160) - 80) + 'px');
+      s.style.setProperty('--dy', (rnd(160) - 80) + 'px');
+      document.body.appendChild(s);
+      (function (n) { setTimeout(function () { n.remove(); }, 900); })(s);
+    }
+    beep(1200, 0.12, 'triangle');
+    buzz(60);
+  }
+
+  /* 翻牌子：动作和部位都用滑动选择 */
   function ultimateSlotSpec() {
     var acts = slotList('act'), parts = slotList('part');
-    var got = { act: null, part: null };
-    var h = '<h3 class="ov-h">你来点</h3>';
-    h += '<p class="ov-p">由 <b>' + esc(otherN()) + '</b> 各点一个，给 <b>' + esc(selfN()) + '</b> 做。</p>';
-    h += '<p class="spec-h">动作</p><div class="chips" id="c-act">';
-    acts.forEach(function (a, i) { h += '<button class="chip" data-a="' + i + '">' + esc(a.x) + '</button>'; });
-    h += '</div><p class="spec-h">部位</p><div class="chips" id="c-part">';
-    parts.forEach(function (p, i) { h += '<button class="chip" data-p="' + i + '">' + esc(p.x) + '</button>'; });
+    var pickAct = null, pickPart = null;
+    $('#ult-sub').innerHTML = '由 <b>' + esc(otherN()) + '</b> 滑着选，给 <b>' + esc(selfN()) + '</b>。';
+    var h = '<p class="spec-h">动作　<span class="sw-hint">← 滑动 →</span></p>';
+    h += '<div class="swipe" id="sw-act">';
+    acts.forEach(function (a, i) { h += '<button data-a="' + i + '">' + esc(a.x) + '</button>'; });
+    h += '</div><p class="spec-h">部位　<span class="sw-hint">← 滑动 →</span></p>';
+    h += '<div class="swipe" id="sw-part">';
+    parts.forEach(function (p, i) { h += '<button data-p="' + i + '">' + esc(p.x) + '</button>'; });
     h += '</div>';
     h += '<button class="btn primary" id="u-go" disabled>确定</button>';
     h += '<button class="btn ghost" id="u-back">换一种模式</button>';
-    sheet(h);
+    $('#ult-body').innerHTML = h;
 
     function refresh() {
-      $('#u-go').disabled = !(got.act && got.part);
-      $('#u-go').textContent = got.act && got.part
-        ? '确定：' + selfN() + ' ' + got.act + ' ' + otherN() + ' 的' + got.part
+      var ok2 = pickAct !== null && pickPart !== null;
+      $('#u-go').disabled = !ok2;
+      $('#u-go').textContent = ok2
+        ? '确定：' + selfN() + ' ' + acts[pickAct].x + ' ' + otherN() + ' 的' + parts[pickPart].x
         : '确定';
     }
-    $$('#ov-body [data-a]').forEach(function (b) {
-      b.onclick = function () {
-        got.act = acts[+b.dataset.a].x;
-        $$('#ov-body [data-a]').forEach(function (x) { x.classList.remove('on'); });
-        b.classList.add('on'); beep(660, 0.05, 'square'); refresh();
+    function wire(id, list, key, set) {
+      var box = $('#' + id);
+      $$('#' + id + ' button').forEach(function (b) {
+        b.onclick = function () {
+          set(+b.dataset[key]);
+          $$('#' + id + ' button').forEach(function (x) { x.classList.remove('on'); });
+          b.classList.add('on');
+          beep(660, 0.05, 'square');
+          refresh();
+          // 滚到中间只是好看，失败了也绝不能影响选中
+          try { if (b.scrollIntoView) b.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); } catch (e) {}
+        };
+      });
+      // 滑动停下来时，把最靠中间的那个选中
+      var t = null;
+      box.onscroll = function () {
+        clearTimeout(t);
+        t = setTimeout(function () {
+          var mid = box.scrollLeft + box.clientWidth / 2, best = 0, bd = 1e9;
+          $$('#' + id + ' button').forEach(function (b, i) {
+            var c = b.offsetLeft + b.offsetWidth / 2, d = Math.abs(c - mid);
+            if (d < bd) { bd = d; best = i; }
+          });
+          $$('#' + id + ' button').forEach(function (x) { x.classList.remove('on'); });
+          $$('#' + id + ' button')[best].classList.add('on');
+          set(best); refresh();
+        }, 130);
       };
-    });
-    $$('#ov-body [data-p]').forEach(function (b) {
-      b.onclick = function () {
-        got.part = parts[+b.dataset.p].x;
-        $$('#ov-body [data-p]').forEach(function (x) { x.classList.remove('on'); });
-        b.classList.add('on'); beep(660, 0.05, 'square'); refresh();
-      };
-    });
-    $('#u-back').onclick = startUltimate;
+    }
+    wire('sw-act', acts, 'a', function (i) { pickAct = i; });
+    wire('sw-part', parts, 'p', function (i) { pickPart = i; });
+    $('#u-back').onclick = ultTypeStep;
     $('#u-go').onclick = function () {
       var c = {
         id: 'ult-slot', lvl: S.max, t: 'dare', s: 0, p: [], g: [],
-        x: '{self} ' + got.act + ' {other} 的' + got.part,
+        x: '{self} ' + acts[pickAct].x + ' {other} 的' + parts[pickPart].x,
         ultimate: true, chosenBy: otherN()
       };
-      // 交给正常的卡片流程：对方点完，还是得被指定的那位自己做
-      shut();
-      setTimeout(function () { show(c, false); }, 220);
+      // 交给正常卡片流程：对方只是指定，做还是被指定的那位自己做
+      show(c, false);
     };
-    refresh();
   }
 
   function spinMain() {
@@ -639,12 +717,10 @@
     btn.disabled = true;
 
     var segs = layout();
-    var total = SECTORS.reduce(function (s, x) { return s + x.w; }, 0);
-    var r = Math.random() * total, acc = 0, hit = segs[segs.length - 1];
-    for (var i = 0; i < segs.length; i++) {
-      acc += segs[i].s.w;
-      if (r <= acc) { hit = segs[i]; break; }
-    }
+    var hit = pick(segs);                       // 五格等概率
+    var roll = Math.random();
+    var twist = roll < REVERSE_P ? 'reverse'
+              : (roll < REVERSE_P + LUCKY_P ? 'lucky' : null);
 
     var need = (360 - hit.mid) % 360;
     var target = spinDeg - (spinDeg % 360) + need;
@@ -652,6 +728,7 @@
     spinDeg = target;
     $('#mw').style.transform = 'rotate(' + target + 'deg)';
     $('#mw-say').textContent = '……';
+    $('#mw-say').className = 'mw-say';
     beep(300, 0.4, 'sawtooth');
     var n = 0, iv = setInterval(function () { beep(1200, 0.015, 'square'); if (++n > 34) clearInterval(iv); }, 105);
 
@@ -659,7 +736,32 @@
       clearInterval(iv);
       $('#mw-say').textContent = hit.s.n;
       chord([659, 880]); buzz(50);
-      setTimeout(function () { toBox(hit.s.k); }, 850);
+
+      if (!twist) { setTimeout(function () { toBox(hit.s.k); }, 850); return; }
+
+      // 极小概率：指针停在某一格，结果却被反转 / 幸运截胡
+      setTimeout(function () {
+        var rev = twist === 'reverse';
+        $('#mw-say').textContent = rev ? '反转！' : '幸运！';
+        $('#mw-say').className = 'mw-say twist' + (rev ? ' rev' : ' lck');
+        $('#step-spin').classList.add('flash');
+        setTimeout(function () { $('#step-spin').classList.remove('flash'); }, 700);
+        chord(rev ? [440, 330, 262] : [784, 988, 1175]);
+        buzz([40, 60, 40]);
+
+        setTimeout(function () {
+          if (rev) {
+            // 这一把整个交给对方，盒子也由对方开
+            S.turn = 1 - S.turn;
+            pendingReverse = true;
+            hud();
+            toast('这张归 ' + selfN());
+            toBox(hit.s.k);
+          } else {
+            show({ t: 'lucky', lvl: 0, x: pick(window.SPECIAL.lucky), s: 0, p: [], g: [] }, false);
+          }
+        }, 1100);
+      }, 700);
     }, 4000);
   }
 
@@ -688,19 +790,13 @@
           setTimeout(function () {
             $$('.box').forEach(function (x) { x.classList.remove('gone', 'open'); });
             busy = false;
-            var roll = Math.random();
-            if (roll < REVERSE_P) {           // 反转：这张转给对方
-              S.turn = 1 - S.turn;
-              var rc = draw(pending);
-              rc.reversed = true;
-              rc.revText = pick(window.SPECIAL.reverse);
-              hud();
-              show(rc, false);
-            } else if (roll < REVERSE_P + LUCKY_P) {   // 幸运：这轮跳过
-              show({ t: 'lucky', lvl: 0, x: pick(window.SPECIAL.lucky), s: 0, p: [], g: [] }, false);
-            } else {
-              show(draw(pending), false);
+            var c = draw(pending);
+            if (pendingReverse) {         // 转盘那步抽到反转，盒子里的内容整个归对方
+              c.reversed = true;
+              c.revText = pick(window.SPECIAL.reverse);
+              pendingReverse = false;
             }
+            show(c, false);
           }, 560);
         }, 660);
       };

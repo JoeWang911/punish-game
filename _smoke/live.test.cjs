@@ -105,8 +105,8 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
       $$('.box')[round % 3].click();
     } else {
       $('#spin-main').click();
-      if (!await until(() => TYPES.includes($('#mw-say').textContent), 9000)) break;
-      await wait(1100);
+      if (!await until(() => TYPES.includes($('#mw-say').textContent) || ['反转！', '幸运！'].includes($('#mw-say').textContent), 9000)) break;
+      await wait(2400);
       if ($('#reel-act')) {
         $('#spin-act').click(); if (!await until(() => !$('#spin-act').disabled, 7000)) break;
         $('#spin-part').click(); if (!await until(() => !$('#spin-part').disabled, 7000)) break;
@@ -118,6 +118,7 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
       }
       if (!await until(() => !$('#step-pick').classList.contains('hide'), 3000)) break;
       const got = $('#mw-say').textContent;
+      if (got === '反转！' || got === '幸运！') { check('线上出现截胡：' + got, true); if ($('#done')) { $('#done').click(); await wait(600); } continue; }
       check('转盘出「' + got + '」→ 盒子提示同一类型', $('#pick-type').textContent === got, $('#pick-type').textContent);
       $$('.box')[round % 3].click();
     }
