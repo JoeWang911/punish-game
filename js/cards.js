@@ -281,6 +281,12 @@ window.SPECIAL = {
  *  两个转轮各转各的，组合出一张卡。
  *  lv 决定它在哪一档尺度出现，g 是红线标签。
  */
+
+/* 抽词权重。放这儿是为了能在测试里直接验，不用去抓 UI。
+   不加权的话，等级越高词表越大，露骨组合反而被稀释——
+   Lv4 下两个轮子都抽到 Lv4 的概率只有 2%，那等级就白解锁了。 */
+window.slotWeight = function (lv) { return Math.pow(2, lv - 1); };
+
 window.SLOT = {
   act: [
     { x: '亲一下', lv: 1 },

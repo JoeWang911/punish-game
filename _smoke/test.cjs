@@ -229,11 +229,12 @@ async function boot(base, seed) {
   $('#menu').click(); await wait(150);
   $$('#ov-body [data-m="pick"]')[0].click(); await wait(150);
   check('点菜 4 种类型', $$('#ov-body [data-t]').length === 4);
-  check('点菜多出一个「动作 × 部位」', !!$('#ov-body [data-slot]'));
+  check('点菜里多出「动手」', !!$('#ov-body [data-slot]') && $('#ov-body [data-slot]').textContent.includes('动手'), $('#ov-body [data-slot]') && $('#ov-body [data-slot]').textContent.trim());
 
   console.log('\n── 10.5 · 老虎机：动作 × 部位 ──');
   $('#ov-body [data-slot]').click();
   await until(() => doc.querySelector('#reel-act'));
+  check('弹层标题是「动手」', $('#ov-body .ov-h').textContent === '动手', $('#ov-body .ov-h').textContent);
   check('两个转轮都渲染出来了', !!$('#reel-act') && !!$('#reel-part'));
   check('两个转轮各有一个按钮', !!$('#spin-act') && !!$('#spin-part'));
   check('初始都是问号', $('#reel-act span').textContent === '？？' && $('#reel-part span').textContent === '？？');
@@ -278,13 +279,9 @@ async function boot(base, seed) {
   check('记录里占位符已还原成人名', !logHtml.includes('{self}') && !logHtml.includes('{other}'));
   shut(win); await wait(150);
 
-  console.log('\n── 10.6 · 转轮会不会越玩越热 ──');
-  // 当前尺度 Lv3。如果不加权，Lv1 的词会因为数量多而占上风；
-  // 加了 2^(lv-1) 权重之后 Lv3 应该明显压过 Lv1。
-  const SLOT = win.SLOT;
-  const lvOf = (kind, x) => (SLOT[kind].find(it => it.x === x) || { lv: 0 }).lv;
-  let lowN = 0, highN = 0, samples = [];
-  for (let i = 0; i < 12; i++) {
+  console.log('\n── 10.6 · 动手转轮（轻量集成）──');
+  let spins = [];
+  for (let i = 0; i < 3; i++) {
     $('#menu').click();
     if (!await until(() => $('#ov-body [data-m="pick"]'), 2000)) break;
     $('#ov-body [data-m="pick"]').click();
@@ -293,16 +290,12 @@ async function boot(base, seed) {
     if (!await until(() => $('#spin-act'), 2000)) break;
     $('#spin-act').click();
     if (!await until(() => !$('#spin-act').disabled, 6000)) break;
-    const got = $('#reel-act span').textContent;
-    const lv = lvOf('act', got);
-    samples.push(got + '(Lv' + lv + ')');
-    if (lv === 1) lowN++;
-    if (lv === 3) highN++;
+    spins.push($('#reel-act span').textContent);
     shut(win); await wait(120);
   }
-  check('抽到 ' + samples.length + ' 个动作样本', samples.length >= 10, samples.join(' '));
-  check('高等级词明显多于低等级词（' + highN + ' : ' + lowN + '）', highN > lowN, samples.join(' '));
-  console.log('     ' + samples.join('  '));
+  check('连转 3 次都出词', spins.length === 3 && spins.every(x => x !== '？？' && x.length > 0), spins.join(' / '));
+  check('转出的词都来自词表', spins.every(x => win.SLOT.act.some(it => it.x === x)), spins.join(' / '));
+  console.log('     ' + spins.join('  '));
 
   console.log('\n── 11 · 安全词 ──');
   $('#safe-line').click(); await wait(180);

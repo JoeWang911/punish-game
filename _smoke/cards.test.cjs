@@ -148,6 +148,60 @@ check('Lv1 动作与部位都够多样', SLOT.act.filter(x => x.lv === 1).length
   'act ' + SLOT.act.filter(x => x.lv === 1).length + ' / part ' + SLOT.part.filter(x => x.lv === 1).length);
 check('Lv1 不含露骨部位', !SLOT.part.some(p => p.lv === 1 && /大腿|胸口|臀|肚脐/.test(p.x)));
 
+/* 权重分布：确定性地验，采样 2 万次，不受单次手气影响。
+   app.js 用的就是同一个 window.slotWeight，改公式这里会挂。 */
+console.log('\n── 转轮加权：越玩越热 ──');
+const W = win.slotWeight;
+check('slotWeight 存在且递增', typeof W === 'function' && W(1) < W(2) && W(2) < W(3) && W(3) < W(4),
+  [1, 2, 3, 4].map(W).join(','));
+
+function share(kind, maxLv, lv) {
+  const list = SLOT[kind].filter(it => it.lv <= maxLv);
+  const total = list.reduce((s, it) => s + W(it.lv), 0);
+  const part = list.filter(it => it.lv === lv).reduce((s, it) => s + W(it.lv), 0);
+  return part / total;
+}
+function uniformShare(kind, maxLv, lv) {
+  const list = SLOT[kind].filter(it => it.lv <= maxLv);
+  return list.filter(it => it.lv === lv).length / list.length;
+}
+
+[1, 2, 3, 4].forEach(maxLv => {
+  const hi = share('act', maxLv, maxLv), lo = share('act', maxLv, 1);
+  const hiU = uniformShare('act', maxLv, maxLv), loU = uniformShare('act', maxLv, 1);
+  console.log('   Lv' + maxLv + '　最高档占比 ' + (hi * 100).toFixed(0) + '%'
+    + '（不加权只有 ' + (hiU * 100).toFixed(0) + '%）　最低档 ' + (lo * 100).toFixed(0) + '%');
+  if (maxLv === 1) {
+    check('Lv1 只有一档，无所谓权重', true);
+  } else {
+    check('Lv' + maxLv + ' 最高档比最低档更容易抽到', hi > lo, (hi * 100).toFixed(0) + '% vs ' + (lo * 100).toFixed(0) + '%');
+    check('Lv' + maxLv + ' 最高档占比高于均匀分布', hi > hiU + 0.05, (hi * 100).toFixed(0) + '% vs ' + (hiU * 100).toFixed(0) + '%');
+  }
+});
+
+// 两个轮子同时抽到最高档的概率——这是"解锁了却抽不到"的关键指标
+// 等级越高，加权带来的提升越大（Lv2 只有一级可升，提升自然小）
+const MIN_BOOST = { 2: 1.8, 3: 3, 4: 5 };
+[2, 3, 4].forEach(maxLv => {
+  const both = share('act', maxLv, maxLv) * share('part', maxLv, maxLv);
+  const bothU = uniformShare('act', maxLv, maxLv) * uniformShare('part', maxLv, maxLv);
+  const boost = both / bothU;
+  console.log('   Lv' + maxLv + '　两个轮子都到最高档：' + (both * 100).toFixed(1) + '%（不加权 ' + (bothU * 100).toFixed(1) + '%，提升 ' + boost.toFixed(1) + ' 倍）');
+  check('Lv' + maxLv + ' 双最高档概率提升 ≥' + MIN_BOOST[maxLv] + ' 倍', boost >= MIN_BOOST[maxLv], '实测 ' + boost.toFixed(1) + ' 倍');
+});
+
+// 真按权重抽 2 万次，确认实际分布跟算出来的一致
+let hit = 0, N = 20000;
+const l3 = SLOT.act.filter(it => it.lv <= 3);
+const tot = l3.reduce((s, it) => s + W(it.lv), 0);
+for (let i = 0; i < N; i++) {
+  let r = Math.random() * tot;
+  for (const it of l3) { r -= W(it.lv); if (r <= 0) { if (it.lv === 3) hit++; break; } }
+}
+const measured = hit / N, expected = share('act', 3, 3);
+check('实际抽样分布符合权重（差 < 3%）', Math.abs(measured - expected) < 0.03,
+  '实测 ' + (measured * 100).toFixed(1) + '% vs 理论 ' + (expected * 100).toFixed(1) + '%');
+
 console.log('\n── 尺寸与道具 ──');
 check('道具清单 12 项且无重复', PROPS.length === 12 && new Set(PROPS).size === 12, '实际 ' + PROPS.length);
 const propRefs = new Set(all.flatMap(c => c.p));
