@@ -112,7 +112,7 @@ try {
     if (!c || !c.x) throw new Error('全部标签屏蔽时抽到空卡');
   }
 } catch (e) { crash = e.message; }
-check('把 9 个标签全部屏蔽 + Lv1 也不会崩', crash === null, crash);
+check('把 11 个标签全部屏蔽 + Lv1 也不会崩', crash === null, crash);
 
 let crash2 = null;
 try {

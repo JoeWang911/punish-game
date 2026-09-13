@@ -69,7 +69,7 @@ async function boot(base, seed) {
 
   console.log('\n── 1 · 初始化 ──');
   check('尺度 4 档', $$('#lv button').length === 4);
-  check('红线 9 项', $$('#tags button').length === 9);
+  check('红线 11 项', $$('#tags button').length === 11);
   check('默认选中 Lv2', $('#lv button.on').dataset.lv === '2');
   check('没存档时不显示「接着上一局」', $('#btn-resume').classList.contains('hide'));
 
