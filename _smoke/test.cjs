@@ -229,12 +229,12 @@ async function boot(base, seed) {
   $('#menu').click(); await wait(150);
   $$('#ov-body [data-m="pick"]')[0].click(); await wait(150);
   check('点菜 4 种类型', $$('#ov-body [data-t]').length === 4);
-  check('点菜里多出「动手」', !!$('#ov-body [data-slot]') && $('#ov-body [data-slot]').textContent.includes('动手'), $('#ov-body [data-slot]') && $('#ov-body [data-slot]').textContent.trim());
+  check('点菜里多出「翻牌子」', !!$('#ov-body [data-slot]') && $('#ov-body [data-slot]').textContent.includes('翻牌子'), $('#ov-body [data-slot]') && $('#ov-body [data-slot]').textContent.trim());
 
   console.log('\n── 10.5 · 老虎机：动作 × 部位 ──');
   $('#ov-body [data-slot]').click();
   await until(() => doc.querySelector('#reel-act'));
-  check('弹层标题是「动手」', $('#ov-body .ov-h').textContent === '动手', $('#ov-body .ov-h').textContent);
+  check('弹层标题是「翻牌子」', $('#ov-body .ov-h').textContent === '翻牌子', $('#ov-body .ov-h').textContent);
   check('两个转轮都渲染出来了', !!$('#reel-act') && !!$('#reel-part'));
   check('两个转轮各有一个按钮', !!$('#spin-act') && !!$('#spin-part'));
   check('初始都是问号', $('#reel-act span').textContent === '？？' && $('#reel-part span').textContent === '？？');
@@ -279,7 +279,7 @@ async function boot(base, seed) {
   check('记录里占位符已还原成人名', !logHtml.includes('{self}') && !logHtml.includes('{other}'));
   shut(win); await wait(150);
 
-  console.log('\n── 10.6 · 动手转轮（轻量集成）──');
+  console.log('\n── 10.6 · 翻牌子转轮（轻量集成）──');
   let spins = [];
   for (let i = 0; i < 3; i++) {
     $('#menu').click();

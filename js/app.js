@@ -586,7 +586,7 @@
     h += '<li><b>真心话</b>　写下来的答案会存进「真心话」，以后能翻出来看。这是这游戏唯一值钱的东西。</li>';
     h += '<li><b>热度</b>　做完一张加一点，每满 ' + HEAT_STEP + ' 点解锁一次「终极」，里面是最狠的那几张，而且是<b>对方</b>替你抽。</li>';
     h += '<li><b>卡</b>　免罚和反转各一张，幸运卡还能再发。用掉就没了。</li>';
-    h += '<li><b>动手</b>　菜单里的「点菜」可以直接指定类型。里面还有个<b>动手</b>：两个转轮分开转，上面出动作、下面出部位，合起来就是一张卡。</li>';
+    h += '<li><b>翻牌子</b>　菜单里的「点菜」可以直接指定类型。里面还有个<b>翻牌子</b>：两个转轮分开转，上面出动作、下面出部位，合起来就是一张卡。</li>';
     h += '<li><b>限时</b>　带 ⏱ 的会弹倒计时，时间到就停，做到哪儿算哪儿。</li>';
     h += '<li><b>安全词</b>　说出来立刻停，抱六十秒。不用解释，不算输。</li>';
     h += '</ul><button class="btn primary" id="ok">知道了</button>';
@@ -663,7 +663,7 @@
     h += '<button data-t="dare"><em>🎯</em>大冒险</button>';
     h += '<button data-t="punish"><em>⚡</em>惩罚</button>';
     h += '<button data-t="duo"><em>💞</em>一起做</button>';
-    h += '<button data-slot="1"><em>🎰</em>动手<s>动作 × 部位</s></button>';
+    h += '<button data-slot="1"><em>🎰</em>翻牌子<s>动作 × 部位</s></button>';
     h += '</div>';
     sheet(h);
     $$('#ov-body [data-t]').forEach(function (b) {
@@ -698,8 +698,8 @@
 
   function openSlot() {
     var na = slotList('act').length, np = slotList('part').length;
-    var h = '<h3 class="ov-h">动手</h3>';
-    h += '<p class="ov-p">两个转轮分开转。上面出动作，下面出部位，合起来就是你这张卡。</p>';
+    var h = '<h3 class="ov-h">翻牌子</h3>';
+    h += '<p class="ov-p">两个转轮分开转。上面出动作，下面出部位，合起来就是你这张卡。<br>翻到哪儿就是哪儿，不许挑。</p>';
     h += '<div class="slot">';
     h += '<div class="reel" id="reel-act"><span>？？</span></div>';
     h += '<button class="btn primary sm full" id="spin-act">转动作</button>';
