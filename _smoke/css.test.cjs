@@ -19,7 +19,9 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
   check('大括号成对（' + open + ' 开 / ' + close + ' 闭）', open === close, '差 ' + (open - close));
   check('没有 CSS 注释没闭合', (cssText.match(/\/\*/g) || []).length === (cssText.match(/\*\//g) || []).length);
   // !important 只允许出现在这几个地方：工具类、禁用态覆盖、减弱动效
-  const imLines = cssText.split('\n')
+  // 先把注释整段抹成空白（保留换行，行号才对得上），否则注释里提到 !important 会误报
+  const code = cssText.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' '));
+  const imLines = code.split('\n')
     .map((l, i) => [i + 1, l])
     .filter(([, l]) => /!important/.test(l));
   const imOk = imLines.every(([, l]) =>

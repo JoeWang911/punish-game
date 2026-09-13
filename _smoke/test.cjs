@@ -13,9 +13,21 @@ async function until(fn, ms = 8000, step = 60) {
 }
 
 const errors = [];
+let firstErrShown = false;
+function noteErr(m, stack) {
+  errors.push(m);
+  if (!firstErrShown) {
+    firstErrShown = true;
+    console.log('   ⚠️  ' + m);
+    if (stack) console.log('       ' + String(stack).split('\n').slice(1, 6).join('\n       '));
+  }
+}
 const vc = new VirtualConsole();
-vc.on('jsdomError', e => { const m = 'jsdomError: ' + (e.detail || e.message); errors.push(m); console.log('   ⚠️  ' + m); });
-vc.on('error', (...a) => { const m = 'console.error: ' + a.join(' '); errors.push(m); console.log('   ⚠️  ' + m); });
+vc.on('jsdomError', e => {
+  const d = e.detail || e;
+  noteErr('jsdomError: ' + (d.message || d), d && d.stack);
+});
+vc.on('error', (...a) => noteErr('console.error: ' + a.join(' ')));
 
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript' };
 function serve() {
@@ -46,7 +58,7 @@ async function boot(base, seed) {
   });
   const w = dom.window;
   w.scrollTo = () => {};
-  w.addEventListener('error', e => { const m = 'window.error: ' + e.message; errors.push(m); console.log('   ⚠️  ' + m); });
+  w.addEventListener('error', e => noteErr('window.error: ' + e.message, e.error && e.error.stack));
   await new Promise(r => w.addEventListener('load', r));
   await wait(180);
   return dom;
@@ -642,6 +654,123 @@ async function boot(base, seed) {
     check('不会再弹第二次升级询问', !$lv('#lu-yes'));
   }
   dom7.window.close();
+
+  console.log('\n── 22 · Lv4 密码门 ──');
+  const dom8 = await boot(base);
+  const w8 = dom8.window, d8 = w8.document;
+  const $8 = s => d8.querySelector(s);
+  const $$8 = s => Array.from(d8.querySelectorAll(s));
+  const lvOn = () => $8('#lv button.on') && $8('#lv button.on').dataset.lv;
+
+  check('主页默认是 Lv2', lvOn() === '2', lvOn());
+
+  $$8('#lv button').find(b => b.dataset.lv === '4').click();
+  await wait(300);
+  check('主页点 Lv4 弹出密码框', !!$8('#pin'), $8('#ov-body') ? $8('#ov-body').textContent.slice(0, 26) : '(没弹)');
+  check('密码框是 password 类型（不明文）', $8('#pin') && $8('#pin').type === 'password');
+  check('此时还没选中 Lv4', lvOn() === '2', lvOn());
+
+  $8('#pin').value = '1234';
+  $8('#pin-go').click(); await wait(300);
+  check('密码错了不关掉', !!$8('#pin'));
+  check('密码错了会提示', $8('#pin-err').textContent.includes('不对'), $8('#pin-err').textContent);
+  check('密码错了输入框被清空', $8('#pin').value === '');
+  check('密码错了输入框标红', $8('#pin').classList.contains('bad'));
+  check('密码错了仍然没选中 Lv4', lvOn() === '2', lvOn());
+
+  $8('#pin').value = '';
+  $8('#pin-go').click(); await wait(250);
+  check('空密码会提示', $8('#pin-err').textContent.includes('还没输'), $8('#pin-err').textContent);
+
+  $8('#pin').value = '0519';
+  $8('#pin-go').click(); await wait(400);
+  check('密码对了弹层关闭', $8('#ov').classList.contains('hide'));
+  check('🔥 密码对了才选中 Lv4', lvOn() === '4', lvOn());
+
+  $$8('#lv button').find(b => b.dataset.lv === '2').click(); await wait(200);
+  check('切回 Lv2 不需要密码', lvOn() === '2' && $8('#ov').classList.contains('hide'));
+  $$8('#lv button').find(b => b.dataset.lv === '4').click(); await wait(300);
+  check('再点 Lv4 又要一次密码', !!$8('#pin'));
+  $8('#pin').value = '0519';
+  $8('#pin').dispatchEvent(new w8.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await wait(400);
+  check('回车提交也生效', lvOn() === '4', lvOn());
+
+  $$8('#lv button').find(b => b.dataset.lv === '3').click(); await wait(200);
+  $$8('#lv button').find(b => b.dataset.lv === '4').click(); await wait(300);
+  $8('#pin-no').click(); await wait(300);
+  check('点「算了」关掉且不切档', $8('#ov').classList.contains('hide') && lvOn() === '3', lvOn());
+
+  console.log('\n── 22.1 · 游戏里切换也要密码 ──');
+  $8('#in-a').value = '阿离';
+  $8('#in-b').value = '小满';
+  $8('#to-limits').click(); await wait(300);
+  $8('#start').click(); await wait(400);
+  check('进游戏后是 Lv3', $8('#lv-chip').textContent.includes('Lv3'), $8('#lv-chip').textContent);
+
+  $8('#lv-chip').click(); await wait(300);
+  check('等级选择能打开', await until(() => $8('#ov-body [data-lv]'), 2000));
+  $8('#ov-body [data-lv="4"]').click(); await wait(350);
+  check('游戏里切 Lv4 也要密码', !!$8('#pin'));
+  check('还没切过去', $8('#lv-chip').textContent.includes('Lv3'), $8('#lv-chip').textContent);
+
+  $8('#pin').value = '0519';
+  $8('#pin-go').click(); await wait(500);
+  check('🔥 密码对了切到 Lv4', $8('#lv-chip').textContent.includes('Lv4'), $8('#lv-chip').textContent);
+  check('切完回到可继续的状态', await until(() => !$8('#step-spin').classList.contains('hide') || !$8('#step-ult').classList.contains('hide'), 3000));
+
+  $8('#lv-chip').click(); await wait(300);
+  $8('#ov-body [data-lv="4"]').click(); await wait(400);
+  check('已经在 Lv4 时不再重复要密码', !$8('#pin'), $8('#pin') ? '又要了一次' : '');
+  dom8.window.close();
+
+  console.log('\n── 23 · Lv3 不再自动升到 Lv4 ──');
+  const lv3Seed = {
+    names: ['阿离', '小满'], safe: '菠萝', max: 3, blocked: [], turn: 0, round: 3,
+    score: [20, 20], mult: 1, armed: [0, 0], ultPending: [false, false], prompted16: false,
+    toke: [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }], needed: [], seen: [],
+    history: [{ at: Date.now(), who: '阿离', lvl: 3, t: 'dare', x: '占位', st: 'done', ans: '' }],
+    truths: [], sessions: 0
+  };
+  const dom9 = await boot(base, lv3Seed);
+  const d9 = dom9.window.document;
+  const $9 = s => d9.querySelector(s);
+  d9.querySelector('#btn-resume').click(); await wait(500);
+  check('停在 Lv3', $9('#lv-chip').textContent.includes('Lv3'), $9('#lv-chip').textContent);
+  check('合计 40 分也不高亮可升级', !$9('#lv-chip').classList.contains('ready'));
+  check('不弹升级询问', !$9('#lu-yes'));
+
+  $9('#lv-chip').click(); await wait(300);
+  await until(() => $9('#ov-body [data-lv="4"]'), 2000);
+  $9('#ov-body [data-lv="4"]').click(); await wait(350);
+  check('Lv3 下手动切 Lv4 仍要密码（没被一起关掉）', !!$9('#pin'));
+  $9('#pin').value = '0519';
+  $9('#pin-go').click(); await wait(500);
+  check('手动切 Lv4 成功', $9('#lv-chip').textContent.includes('Lv4'), $9('#lv-chip').textContent);
+  dom9.window.close();
+
+  const lv2Seed = JSON.parse(JSON.stringify(lv3Seed));
+  lv2Seed.max = 2;
+  const dom10 = await boot(base, lv2Seed);
+  const d10 = dom10.window.document;
+  const $10 = s => d10.querySelector(s);
+  const $$10 = s => Array.from(d10.querySelectorAll(s));
+  d10.querySelector('#btn-resume').click(); await wait(400);
+  check('Lv2 且分数够了，按钮是可升级状态', $10('#lv-chip').classList.contains('ready'));
+  $10('#menu').click(); await wait(250);
+  $10('#ov-body [data-m="pick"]').click(); await wait(250);
+  $10('#ov-body [data-t="punish"]').click(); await wait(500);
+  $$10('.box')[0].click(); await wait(1500);
+  if ($10('#give')) { $10('#give').click(); await wait(800); }
+  if ($10('#done')) { $10('#done').click(); await wait(700); }
+  const asked10 = await until(() => $10('#lu-yes'), 6000);
+  check('Lv2 跨过 16 时仍会问升级', asked10);
+  if (asked10) {
+    check('Lv2 升的目标是 Lv3（不是 Lv4）', $10('#lu-yes').textContent.includes('Lv3'), $10('#lu-yes').textContent);
+    $10('#lu-yes').click(); await wait(500);
+    check('升到 Lv3 成功', $10('#lv-chip').textContent.includes('Lv3'), $10('#lv-chip').textContent);
+  }
+  dom10.window.close();
 
   console.log('\n════════════════════════');
   console.log('  通过 ' + pass + '，失败 ' + fail);

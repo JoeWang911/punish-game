@@ -109,7 +109,7 @@ body{
 .names input{flex:1;min-width:0;text-align:center;font-weight:600}
 .amp{color:var(--txt-3);font-size:14px;flex:none;opacity:.8}
 
-input[type=text]{
+input[type=text],input[type=password]{
   width:100%;padding:15px;border-radius:var(--r-m);
   background:linear-gradient(180deg,rgba(0,0,0,.42),rgba(0,0,0,.24));
   border:1px solid var(--line);color:var(--txt);
@@ -117,7 +117,7 @@ input[type=text]{
   box-shadow:inset 0 2px 6px rgba(0,0,0,.35);
   transition:border-color .2s var(--ease), box-shadow .2s var(--ease);
 }
-input[type=text]:focus{
+input[type=text]:focus,input[type=password]:focus{
   border-color:var(--rose);
   box-shadow:inset 0 2px 6px rgba(0,0,0,.35), 0 0 0 4px rgba(255,77,126,.14);
 }
@@ -603,6 +603,24 @@ input[type=text]:focus{
   color:var(--gold);font-size:13.5px;
 }
 .empty{padding:44px 0;text-align:center;color:var(--txt-3);font-size:13.5px;line-height:1.9}
+
+/* Lv4 密码门 */
+.pin-err{
+  min-height:20px;margin:10px 0 4px;text-align:center;
+  color:#ff8a8a;font-size:12.5px;font-weight:600;
+}
+/* 用类型+类双重限定提权，不用 !important */
+input[type=password].bad{
+  border-color:#ff5b5b;
+  animation:pinShake .4s ease;
+}
+@keyframes pinShake{
+  0%,100%{transform:translateX(0)}
+  20%{transform:translateX(-7px)}
+  40%{transform:translateX(7px)}
+  60%{transform:translateX(-4px)}
+  80%{transform:translateX(4px)}
+}
 
 .sum{margin:0 0 22px;border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;box-shadow:var(--edge)}
 .sum-row{

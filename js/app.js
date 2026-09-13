@@ -16,6 +16,7 @@
   var hide = function (el, yes) { el.classList.toggle('hide', yes); };
 
   var LS = 'punish-game-v1';
+  var LV4_PIN = '0519';    // 进 Lv4 的密码。想换改这里就行。
   var LEVEL_UP_AT = 16;   // 两人积分之和到这个数，问要不要升一档
   var ULT_EVERY = 4;      // 个人积分每到 4 的倍数，武装一次终极模式
   var REVERSE_P = 0.04;   // 反转：这张转给对方
@@ -161,12 +162,22 @@
       if (+k === 2) b.className = 'on';
       b.innerHTML = '<em>' + L.i + '</em><span>' + esc(L.n) + '<small>' + esc(L.d) + '</small></span>';
       b.onclick = function () {
-        $$('#lv button').forEach(function (x) { x.classList.remove('on'); });
-        b.classList.add('on');
-        beep(660, 0.06, 'square');
+        var lv = +k;
+        if (lv === 4) {
+          // 主页上选 Lv4 也要密码
+          askPassword(function () { pickLv(b); });
+          return;
+        }
+        pickLv(b);
       };
       box.appendChild(b);
     });
+  }
+
+  function pickLv(b) {
+    $$('#lv button').forEach(function (x) { x.classList.remove('on'); });
+    b.classList.add('on');
+    beep(660, 0.06, 'square');
   }
 
   function buildTags() {
@@ -188,6 +199,44 @@
     save();
   }
 
+  /* ── Lv4 密码门 ──
+     Lv4 是最露骨的一档，从主页选中、或者游戏里切过去，都要先输密码。 */
+  function askPassword(onOk) {
+    var h = '<h3 class="ov-h">🔒 Lv4 需要密码</h3>';
+    h += '<p class="ov-p">Lv4 是最高的一档，进去之前先输密码。<br>两个人商量好了再进。</p>';
+    h += '<input type="password" id="pin" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="密码" style="text-align:center;letter-spacing:.4em;font-size:20px">';
+    h += '<p class="pin-err" id="pin-err"></p>';
+    h += '<button class="btn primary" id="pin-go">确定</button>';
+    h += '<button class="btn ghost" id="pin-no">算了</button>';
+    sheet(h);
+
+    var input = $('#pin');
+    if (input) { try { input.focus(); } catch (e) {} }
+
+    function submit() {
+      var v = ($('#pin') ? $('#pin').value : '').trim();
+      if (v === LV4_PIN) {
+        shut();
+        onOk();
+      } else {
+        $('#pin-err').textContent = v ? '密码不对' : '还没输密码';
+        var box = $('#pin');
+        if (box) {
+          box.classList.remove('bad');
+          void box.offsetWidth;
+          box.classList.add('bad');
+          box.value = '';
+          try { box.focus(); } catch (e) {}
+        }
+        beep(220, 0.16, 'square');
+        buzz(80);
+      }
+    }
+    $('#pin-go').onclick = submit;
+    if (input) input.onkeydown = function (e) { if (e.key === 'Enter') submit(); };
+    $('#pin-no').onclick = shut;
+  }
+
   /* ── HUD ── */
   function combined() { return S.score[0] + S.score[1]; }
 
@@ -207,7 +256,13 @@
     $('#lv-chip').textContent = 'Lv' + S.max + ' · ' + L.n;
     $('#lv-chip').classList.toggle('ready', canLevelUp());
   }
-  function canLevelUp() { return S.max < 4 && combined() >= LEVEL_UP_AT; }
+  function canLevelUp() {
+    /* Lv3 → Lv4 的自动升级先注释掉：Lv4 只能手动切，而且要密码过门。
+       想恢复的话把下面这行换成原本的判断：
+       return S.max < 4 && combined() >= LEVEL_UP_AT;
+    */
+    return S.max < 3 && combined() >= LEVEL_UP_AT;
+  }
 
   /* 积分每到 4 的倍数，这个人下次受罚就进终极模式 */
   function armCheck(i) {
@@ -232,8 +287,17 @@
     if (S.ultPending[i]) showSpin();
   }
 
-  /* 换等级：题目跟着换 */
+  /* 换等级：题目跟着换。进 Lv4 要先过密码。 */
   function setLevel(lv) {
+    if (lv === 4 && S.max !== 4) {
+      shut();
+      askPassword(function () { applyLevel(4); });
+      return;
+    }
+    applyLevel(lv);
+  }
+
+  function applyLevel(lv) {
     S.max = lv;
     S.seen = [];               // 换档了，重新洗牌
     save(); hud();
@@ -449,7 +513,8 @@
   }
 
   function askLevelUp() {
-    var nextLv = Math.min(4, S.max + 1);
+    // Lv3 → Lv4 的自动升级已停用，所以这里最多只升到 Lv3
+    var nextLv = Math.min(3, S.max + 1);
     var h = '<h3 class="ov-h">要不要升一档</h3>';
     h += '<p class="ov-p">你们一共做了 <b>' + combined() + ' 张</b>。<br>升上去题会明显更狠，也可以先不升，随时从这个按钮切。</p>';
     h += '<button class="btn primary" id="lu-yes">升到 Lv' + nextLv + ' · ' + esc(window.LEVELS[nextLv].n) + '</button>';
