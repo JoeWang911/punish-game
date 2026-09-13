@@ -13,16 +13,19 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   };
+  var hide = function (el, yes) { el.classList.toggle('hide', yes); };
 
   var LS = 'punish-game-v1';
   var HEAT_STEP = 8;
 
   var S = null;
-  var spin = 0;
+  var spinDeg = 0;
   var busy = false;
   var tick = null;
+  var pending = null;      // 转盘定下来的类型
+  var inTurn = false;      // 手上有张没结算的卡
 
-  /* ── 声音（没有音频文件，现场合成） ── */
+  /* ── 声音 ── */
   var AC = null;
   function beep(f, d, type) {
     try {
@@ -40,19 +43,23 @@
   function chord(list) { list.forEach(function (f, i) { setTimeout(function () { beep(f, 0.26, 'triangle'); }, i * 85); }); }
   function buzz(ms) { if (navigator.vibrate) { try { navigator.vibrate(ms); } catch (e) {} } }
 
-  /* ── 状态 ── */
+  /* ── 状态 ──
+     history 只装「这一局」，truths 跨局永久保留——
+     结束一局只清前者，真心话是这游戏唯一值钱的东西，不能被重开冲掉。 */
   function blank() {
     return {
       names: ['宝贝', '亲爱的'], safe: '菠萝', max: 2, blocked: [],
       turn: 0, round: 1, heat: 0, score: [0, 0], mult: 1, ultUsed: 0,
       toke: [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }],
-      history: [], needed: [], seen: []
+      history: [],          // 本局
+      truths: [],           // 跨局保留
+      sessions: 0,
+      needed: [], seen: []
     };
   }
   function save() {
-    // 只存该存的，S.cur 这类运行时字段不要落盘
     var keep = ['names', 'safe', 'max', 'blocked', 'turn', 'round', 'heat', 'score',
-                'mult', 'ultUsed', 'toke', 'history', 'needed', 'seen'];
+                'mult', 'ultUsed', 'toke', 'history', 'truths', 'sessions', 'needed', 'seen'];
     var o = {};
     keep.forEach(function (k) { o[k] = S[k]; });
     try { localStorage.setItem(LS, JSON.stringify(o)); } catch (e) {}
@@ -64,6 +71,13 @@
       var d = JSON.parse(raw);
       var s = blank();
       Object.keys(s).forEach(function (k) { if (d[k] !== undefined) s[k] = d[k]; });
+      // 老存档兼容：以前真心话是混在 history 里的
+      if (!Array.isArray(s.truths)) s.truths = [];
+      s.history.forEach(function (r) {
+        if (r.ans && !s.truths.some(function (t) { return t.at === r.at && t.ans === r.ans; })) {
+          s.truths.push({ at: r.at, who: r.who, x: r.x, ans: r.ans });
+        }
+      });
       return s;
     } catch (e) { return null; }
   }
@@ -83,7 +97,6 @@
   });
 
   var LVW = { 1: 1, 2: 1.45, 3: 1.9, 4: 2.4 };
-  var TW = { truth: 26, dare: 30, punish: 20, duo: 12, reverse: 6, lucky: 6 };
 
   function ok(c) {
     if (c.lvl > S.max) return false;
@@ -97,29 +110,27 @@
     for (var i = 0; i < list.length; i++) { r -= ws[i]; if (r <= 0) return list[i]; }
     return list[list.length - 1];
   }
-  function rollType(noSpecial) {
-    var ks = noSpecial ? ['truth', 'dare', 'punish', 'duo'] : Object.keys(TW);
-    var total = 0;
-    ks.forEach(function (k) { total += TW[k]; });
-    var r = Math.random() * total;
-    for (var i = 0; i < ks.length; i++) { r -= TW[ks[i]]; if (r <= 0) return ks[i]; }
-    return 'dare';
+
+  function special(t) {
+    var arr = window.SPECIAL[t], i = rnd(arr.length);
+    return { id: t + i, idx: i, lvl: 0, t: t, x: arr[i].x, s: arr[i].s || 0, p: arr[i].p || [], g: arr[i].g || [] };
   }
+
+  /** 抽一张指定类型的卡。type 为空就自己按权重挑一个。 */
   function draw(type, top) {
-    // top = 终极盲盒，只出真卡，不给幸运/反转这种奖励卡
-    var t = type || rollType(top);
-    if (t === 'reverse' || t === 'lucky') {
-      var arr = window.SPECIAL[t], i = rnd(arr.length);
-      return { id: t + i, idx: i, lvl: 0, t: t, x: arr[i].x, s: arr[i].s || 0, p: arr[i].p || [], g: arr[i].g || [] };
+    if (type === 'reverse' || type === 'lucky') return special(type);
+    if (!type) {
+      var ks = ['truth', 'dare', 'punish', 'duo'];
+      type = pick(ks);
     }
-    var list = POOL.filter(function (c) { return c.t === t && ok(c); });
+    var list = POOL.filter(function (c) { return c.t === type && ok(c); });
     if (top && list.length) {
       var hi = Math.max.apply(null, list.map(function (c) { return c.lvl; }));
       list = list.filter(function (c) { return c.lvl === hi; });
     }
     if (!list.length) list = POOL.filter(function (c) { return ok(c); });
     if (!list.length) list = POOL.filter(function (c) { return c.lvl <= S.max; });
-    if (!list.length) list = POOL.slice();          // 兜底，宁可越过红线也不崩
+    if (!list.length) list = POOL.slice();
     var fresh = list.filter(function (c) { return S.seen.indexOf(c.id) < 0; });
     if (!fresh.length) { S.seen = []; fresh = list; }
     var c = weight(fresh, function (x) { return LVW[x.lvl] || 1; });
@@ -181,6 +192,7 @@
       $('#n-' + i).textContent = S.names[i];
       $('#s-' + i).textContent = S.score[i];
       $('#who-' + i).classList.toggle('on', S.turn === i);
+      $('#who-' + i).title = '点一下，轮到 ' + S.names[i];
     });
     var inStep = S.heat % HEAT_STEP;
     $('#heat-fill').style.width = (S.heat === 0 ? 0 : Math.max(6, inStep / HEAT_STEP * 100)) + '%';
@@ -192,6 +204,15 @@
   }
   function charges() { return Math.floor(S.heat / HEAT_STEP) - (S.ultUsed || 0); }
 
+  /* 手动换人：别的游戏输了的人可以直接被点成受罚方 */
+  function setTurn(i) {
+    if (S.turn === i) return;
+    S.turn = i;
+    save(); hud();
+    beep(560, 0.06, 'square');
+    toast('轮到 ' + selfN());
+  }
+
   /* ── 弹层 ── */
   function sheet(html) {
     $('#ov-body').innerHTML = html;
@@ -202,11 +223,26 @@
     $('#ov-body').innerHTML = '';
   }
 
+  /* 关掉弹层。
+     如果手里还攥着一张没结算的卡（尤其翻牌子转到一半），
+     直接关会卡死：转盘按钮还是禁用的，盒子也已经没了。
+     所以这时候把回合退回到转盘那一步。 */
+  function dismiss() {
+    if (inTurn) {
+      inTurn = false;
+      shut();
+      showSpin();
+      toast('这张先算了');
+      return;
+    }
+    shut();
+  }
+
   var KIND = {
     truth:   { n: '真心话', c: '' },
     dare:    { n: '大冒险', c: '' },
     punish:  { n: '惩罚',   c: 't-punish' },
-    duo:     { n: '一起',   c: 't-duo' },
+    duo:     { n: '一起做', c: 't-duo' },
     reverse: { n: '反转',   c: 't-reverse' },
     lucky:   { n: '幸运',   c: 't-lucky' },
     cost:    { n: '代价',   c: 't-cost' }
@@ -220,6 +256,7 @@
 
   function show(card, isCost) {
     busy = false;
+    inTurn = true;
     S.cur = card;
     var k = KIND[card.t];
     var mult = S.mult || 1;
@@ -277,12 +314,17 @@
       at: Date.now(), who: selfN(), lvl: card.lvl || 0, t: card.t,
       x: card.x, st: status, ans: ans || ''
     });
-    if (S.history.length > 200) S.history.shift();
+    if (S.history.length > 300) S.history.shift();
+    if (ans) {
+      S.truths.push({ at: Date.now(), who: selfN(), x: card.x, ans: ans });
+      if (S.truths.length > 500) S.truths.shift();
+    }
   }
 
   function endCard() {
     var c = S.cur;
     var ans = $('#ans') ? $('#ans').value.trim() : '';
+    inTurn = false;
     log(c, 'done', ans);
     S.score[S.turn]++;
     S.heat++;
@@ -294,7 +336,7 @@
       S.turn = 1 - S.turn;
       hud();
       toast('甩给 ' + selfN() + ' 了');
-      setTimeout(function () { dealWhenFree(); }, 650);
+      setTimeout(showSpin, 650);
       return;
     }
     toast(c.t === 'duo' ? '这张算两个人的' : '热度 +1');
@@ -308,12 +350,12 @@
     if (c.idx === 1) { S.toke[S.turn].rev++; toast('拿到一张反转卡'); }
     if (c.idx === 2) {
       S.toke[S.turn].skip++;
-      // 此刻还没换人，等 next() 之后 S.turn 才是对方，正好是"让 TA 抽一张"
-      setTimeout(function () { dealWhenFree(null, true); }, 1000);
+      setTimeout(function () { toBox('punish'); }, 900);
     }
   }
 
   function endCost() {
+    inTurn = false;
     log(S.cur, 'cost');
     S.heat++;
     S.mult = 1;
@@ -341,6 +383,7 @@
 
   function useSkip() {
     if (S.toke[S.turn].skip <= 0) return;
+    inTurn = false;
     S.toke[S.turn].skip--;
     log(S.cur, 'skip');
     save(); shut(); hud();
@@ -358,25 +401,94 @@
     S.turn = 1 - S.turn;
     S.round++;
     save(); hud();
+    showSpin();
   }
 
-  function deal(type, top) {
-    if (busy) return;
-    show(draw(type, top), false);
+  /* ============================================================
+   *  第一步：转类型
+   * ============================================================ */
+  var SECTORS = [
+    { k: 'truth',  n: '真心话', w: 1.1, c: '#a81c50' },
+    { k: 'dare',   n: '大冒险', w: 1.3, c: '#3a1030' },
+    { k: 'punish', n: '惩罚',   w: 1.3, c: '#a81c50' },
+    { k: 'duo',    n: '一起做', w: 0.7, c: '#3a1030' },
+    { k: 'slot',   n: '翻牌子', w: 0.6, c: '#6d1b4c' }
+  ];
+
+  function layout() {
+    var total = SECTORS.reduce(function (s, x) { return s + x.w; }, 0);
+    var acc = 0;
+    return SECTORS.map(function (s) {
+      var span = s.w / total * 360;
+      var o = { s: s, start: acc, span: span, mid: acc + span / 2 };
+      acc += span;
+      return o;
+    });
   }
 
-  /* 自动补抽（反转、幸运卡）不能撞上正在开盒的动画，
-     撞上就被 deal() 静默吞掉，卡就丢了。等到空闲再抽。 */
-  function dealWhenFree(type, top, tries) {
-    tries = tries || 0;
-    if (busy && tries < 40) {
-      setTimeout(function () { dealWhenFree(type, top, tries + 1); }, 150);
-      return;
+  function paintWheel() {
+    var segs = layout();
+    var stops = segs.map(function (g) {
+      return g.s.c + ' ' + g.start.toFixed(2) + 'deg ' + (g.start + g.span).toFixed(2) + 'deg';
+    }).join(',');
+    var el = $('#mw');
+    el.style.background = 'conic-gradient(' + stops + ')';
+    el.innerHTML = segs.map(function (g) {
+      return '<span style="transform:rotate(' + g.mid.toFixed(2) + 'deg) translateY(-76px) rotate('
+        + (-g.mid).toFixed(2) + 'deg) translate(-50%,-50%)">' + esc(g.s.n) + '</span>';
+    }).join('');
+  }
+
+  function showSpin() {
+    pending = null;
+    busy = false;
+    inTurn = false;
+    hide($('#step-spin'), false);
+    hide($('#step-pick'), true);
+    $('#mw-say').textContent = '转一下，看这把玩什么';
+    $('#spin-main').disabled = false;
+    if (!$('#mw').innerHTML) paintWheel();
+  }
+
+  function spinMain() {
+    var btn = $('#spin-main');
+    if (btn.disabled) return;
+    btn.disabled = true;
+
+    var segs = layout();
+    var total = SECTORS.reduce(function (s, x) { return s + x.w; }, 0);
+    var r = Math.random() * total, acc = 0, hit = segs[segs.length - 1];
+    for (var i = 0; i < segs.length; i++) {
+      acc += segs[i].s.w;
+      if (r <= acc) { hit = segs[i]; break; }
     }
-    deal(type, top);
+
+    var need = (360 - hit.mid) % 360;
+    var target = spinDeg - (spinDeg % 360) + need;
+    while (target <= spinDeg + 360 * 3) target += 360;
+    spinDeg = target;
+    $('#mw').style.transform = 'rotate(' + target + 'deg)';
+    $('#mw-say').textContent = '……';
+    beep(300, 0.4, 'sawtooth');
+    var n = 0, iv = setInterval(function () { beep(1200, 0.015, 'square'); if (++n > 34) clearInterval(iv); }, 105);
+
+    setTimeout(function () {
+      clearInterval(iv);
+      $('#mw-say').textContent = hit.s.n;
+      chord([659, 880]); buzz(50);
+      setTimeout(function () { toBox(hit.s.k); }, 850);
+    }, 4000);
   }
 
-  /* ── 盲盒 ── */
+  /* 第二步：挑盒子抽卡 */
+  function toBox(k) {
+    pending = k;
+    if (k === 'slot') { openSlot(); return; }
+    hide($('#step-spin'), true);
+    hide($('#step-pick'), false);
+    $('#pick-type').textContent = KIND[k] ? KIND[k].n : k;
+  }
+
   function boxes() {
     $$('.box').forEach(function (b) {
       b.onclick = function () {
@@ -393,97 +505,134 @@
           setTimeout(function () {
             $$('.box').forEach(function (x) { x.classList.remove('gone', 'open'); });
             busy = false;
-            deal();
+            // 小概率来张意外的：反转 / 幸运
+            var t = Math.random() < 0.08 ? (Math.random() < 0.5 ? 'reverse' : 'lucky') : pending;
+            show(draw(t), false);
           }, 560);
         }, 660);
       };
     });
   }
 
-  /* ── 转盘 ── */
-  var WHEEL = [
-    { k: 'punA', f: function (n) { return n[0] + '受罚'; }, c: '#a81c50' },
-    { k: 'duo',  f: function () { return '一起'; },      c: '#3a1030' },
-    { k: 'punB', f: function (n) { return n[1] + '受罚'; }, c: '#a81c50' },
-    { k: 'swap', f: function () { return '换人'; },      c: '#3a1030' },
-    { k: 'truth',f: function () { return '真心话'; },    c: '#a81c50' },
-    { k: 'lucky',f: function () { return '幸运'; },      c: '#3a1030' },
-    { k: 'drawA',f: function (n) { return n[0] + '抽'; },c: '#a81c50' },
-    { k: 'x2',   f: function () { return '加码×2'; },    c: '#3a1030' },
-    { k: 'drawB',f: function (n) { return n[1] + '抽'; },c: '#a81c50' },
-    { k: 'top',  f: function () { return '最狠'; },      c: '#3a1030' },
-    { k: 'ask',  f: function () { return '点菜'; },      c: '#a81c50' },
-    { k: 'dice', f: function () { return '骰子'; },      c: '#3a1030' }
-  ];
-
-  function openWheel() {
-    var n = S.names.map(function (s) { return s.slice(0, 3); });
-    var seg = 360 / WHEEL.length;
-    var stops = WHEEL.map(function (w, i) { return w.c + ' ' + (i * seg) + 'deg ' + ((i + 1) * seg) + 'deg'; }).join(',');
-    var h = '<h3 class="ov-h">转盘</h3><p class="ov-p">转到什么就是什么。</p>';
-    h += '<div class="wheel-wrap"><div class="wheel" id="wheel" style="background:conic-gradient(' + stops + ')">';
-    WHEEL.forEach(function (w, i) {
-      var mid = i * seg + seg / 2;
-      h += '<span style="transform:rotate(' + mid + 'deg) translateY(-96px) rotate(' + (-mid) + 'deg) translate(-50%,-50%)">' + esc(w.f(n)) + '</span>';
+  /* ============================================================
+   *  翻牌子：动作 × 部位
+   * ============================================================ */
+  function slotList(kind) {
+    var src = window.SLOT[kind];
+    var list = src.filter(function (it) {
+      if (it.lv > S.max) return false;
+      for (var i = 0; i < (it.g || []).length; i++) if (S.blocked.indexOf(it.g[i]) >= 0) return false;
+      return true;
     });
-    h += '</div><div class="wheel-pin">▼</div></div><p class="wheel-say" id="wheel-say">&nbsp;</p>';
-    h += '<button class="btn primary" id="spin">转</button>';
+    if (!list.length) list = src.filter(function (it) { return it.lv <= S.max; });
+    if (!list.length) list = src;
+    return list;
+  }
+
+  function slotPick(list) {
+    var W = window.slotWeight;
+    var total = 0;
+    var ws = list.map(function (it) { var w = W(it.lv); total += w; return w; });
+    var r = Math.random() * total;
+    for (var i = 0; i < list.length; i++) { r -= ws[i]; if (r <= 0) return list[i]; }
+    return list[list.length - 1];
+  }
+
+  function openSlot() {
+    inTurn = true;
+    var na = slotList('act').length, np = slotList('part').length;
+    var h = '<h3 class="ov-h">翻牌子</h3>';
+    h += '<p class="ov-p">两个转轮分开转。上面出动作，下面出部位，合起来就是你这张卡。<br>翻到哪儿就是哪儿，不许挑。</p>';
+    h += '<div class="slot">';
+    h += '<div class="reel" id="reel-act"><span>？？</span></div>';
+    h += '<button class="btn primary sm full" id="spin-act">翻动作</button>';
+    h += '<div class="reel" id="reel-part"><span>？？</span></div>';
+    h += '<button class="btn primary sm full" id="spin-part">翻部位</button>';
+    h += '</div>';
+    h += '<p class="slot-say" id="slot-say">两个都翻完就出结果</p>';
+    h += '<button class="btn primary hide" id="slot-done">做了，下一张</button>';
+    h += '<button class="btn ghost hide" id="slot-again">两个重翻</button>';
+    h += '<p class="slot-note">当前尺度下：' + na + ' 个动作 × ' + np + ' 个部位 = ' + (na * np) + ' 种组合</p>';
     sheet(h);
-    spin = 0;
-    $('#spin').onclick = doSpin;
-  }
 
-  function doSpin() {
-    var b = $('#spin');
-    if (!b || b.disabled) return;
-    b.disabled = true;
-    var i = rnd(WHEEL.length), seg = 360 / WHEEL.length;
-    var need = (360 - (i * seg + seg / 2)) % 360;
-    var target = spin - (spin % 360) + need;
-    while (target <= spin + 360 * 3) target += 360;
-    spin = target;
-    $('#wheel').style.transform = 'rotate(' + target + 'deg)';
-    beep(300, 0.4, 'sawtooth');
-    var n = 0, iv = setInterval(function () { beep(1200, 0.015, 'square'); if (++n > 38) clearInterval(iv); }, 105);
-    setTimeout(function () {
-      clearInterval(iv);
-      land(WHEEL[i]);
-    }, 4300);
-  }
+    var got = { act: null, part: null };
+    var spinning = { act: false, part: false };
 
-  function land(w) {
-    $('#wheel-say').textContent = w.f(S.names);
-    chord([659, 880]); buzz(60);
-    setTimeout(function () {
-      shut();
-      var was = S.turn;
-      switch (w.k) {
-        case 'punA': S.turn = 0; hud(); deal('punish'); break;
-        case 'punB': S.turn = 1; hud(); deal('punish'); break;
-        case 'drawA': S.turn = 0; hud(); deal(); break;
-        case 'drawB': S.turn = 1; hud(); deal(); break;
-        case 'duo': deal('duo'); break;
-        case 'truth': deal('truth'); break;
-        case 'lucky': deal('lucky'); break;
-        case 'top': deal(null, true); break;
-        case 'x2': toast('这张罚两份'); S.mult = 2; deal('punish'); break;
-        case 'swap':
-          S.turn = 1 - S.turn; hud();
-          toast('换人，轮到 ' + selfN());
-          setTimeout(function () { dealWhenFree(); }, 750);
-          break;
-        case 'dice': openDice(); break;
-        case 'ask': openMenu(); break;
-        default: deal();
+    function render() {
+      if (got.act && got.part) {
+        $('#slot-say').innerHTML = '<b>' + esc(selfN()) + '</b>　' + esc(got.act)
+          + '　<b>' + esc(otherN()) + '</b>的' + esc(got.part);
+        hide($('#slot-done'), false);
+        hide($('#slot-again'), false);
+        chord([659, 880]); buzz(40);
+      } else if (got.act || got.part) {
+        $('#slot-say').textContent = got.act ? '还要翻部位' : '还要翻动作';
       }
-    }, 1900);
+    }
+
+    function spin(which) {
+      if (spinning[which]) return;
+      var list = slotList(which === 'act' ? 'act' : 'part');
+      var final = slotPick(list);
+      var el = $('#reel-' + which);
+      var btn = $('#spin-' + which);
+      spinning[which] = true;
+      btn.disabled = true;
+      el.classList.add('rolling');
+      hide($('#slot-done'), true);
+      hide($('#slot-again'), true);
+
+      var t = 0, delay = 45, total = 1150 + rnd(450);
+      (function step() {
+        el.querySelector('span').textContent = slotPick(list).x;
+        beep(1400, 0.012, 'square');
+        t += delay;
+        if (t < total * 0.55) delay = 45;
+        else if (t < total * 0.8) delay = 95;
+        else delay = 165;
+        if (t < total) { setTimeout(step, delay); return; }
+        el.querySelector('span').textContent = final.x;
+        el.classList.remove('rolling');
+        el.classList.add('landed');
+        setTimeout(function () { el.classList.remove('landed'); }, 400);
+        got[which] = final.x;
+        spinning[which] = false;
+        btn.disabled = false;
+        beep(880, 0.12, 'triangle');
+        render();
+      })();
+    }
+
+    $('#spin-act').onclick = function () { spin('act'); };
+    $('#spin-part').onclick = function () { spin('part'); };
+    $('#slot-again').onclick = function () {
+      got.act = null; got.part = null;
+      $('#reel-act').querySelector('span').textContent = '？？';
+      $('#reel-part').querySelector('span').textContent = '？？';
+      $('#slot-say').textContent = '两个都翻完就出结果';
+      hide($('#slot-done'), true);
+      hide($('#slot-again'), true);
+    };
+    $('#slot-done').onclick = function () {
+      inTurn = false;
+      log({ lvl: S.max, t: 'dare', x: '{self} ' + got.act + ' {other} 的' + got.part }, 'done');
+      S.score[S.turn]++;
+      S.heat++;
+      S.mult = 1;
+      save(); shut(); hud();
+      toast('热度 +1');
+      bumpHeat();
+      next();
+    };
   }
 
-  /* ── 骰子 ── */
+  /* ============================================================
+   *  骰子：决定谁受罚
+   * ============================================================ */
   var FACE = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
   function openDice() {
-    var h = '<h3 class="ov-h">掷骰子</h3><p class="ov-p">各两颗，小的抽惩罚。一样大就一起做。</p><div class="dice">';
+    var h = '<h3 class="ov-h">谁受罚</h3><p class="ov-p">各两颗，小的抽惩罚。一样大就一起做。<br>别的游戏输了也能用这个定。</p><div class="dice">';
     [0, 1].forEach(function (i) {
       h += '<div id="d' + i + '"><h4>' + esc(S.names[i]) + '</h4><div class="face" id="f' + i + '">⚀ ⚀</div><div class="pt" id="p' + i + '">—</div></div>';
     });
@@ -511,16 +660,16 @@
         $('#p0').textContent = ta; $('#p1').textContent = tb;
         setTimeout(function () {
           if (ta === tb) {
-            $('#dsay').textContent = '平手，一起做';
+            $('#dsay').textContent = '平手，两个人一起做';
             chord([523, 659, 784]);
-            setTimeout(function () { shut(); S.turn = 0; hud(); deal('duo'); }, 1000);
+            setTimeout(function () { shut(); setTurn(0); toBox('duo'); }, 1000);
           } else {
             var lose = ta < tb ? 0 : 1;
             $('#d' + lose).classList.add('lose');
             $('#d' + (1 - lose)).classList.add('win');
             $('#dsay').textContent = S.names[lose] + ' 输了';
             buzz(110);
-            setTimeout(function () { shut(); S.turn = lose; hud(); deal('punish'); }, 1000);
+            setTimeout(function () { shut(); setTurn(lose); toBox('punish'); }, 1000);
           }
         }, 240);
       }
@@ -555,39 +704,42 @@
   }
   function stopTimer() { clearInterval(tick); $('#timer').classList.add('hide'); }
 
-  /* ── 菜单 ── */
+  /* ============================================================
+   *  菜单
+   * ============================================================ */
   function openMenuList() {
     var h = '<h3 class="ov-h">菜单</h3><div class="menu-list">';
-    h += '<button data-m="rule"><em>📖</em>怎么玩</button>';
-    h += '<button data-m="pick"><em>💬</em>点菜<s>指定类型</s></button>';
+    h += '<button data-m="pick"><em>💬</em>点菜<s>直接指定类型</s></button>';
     h += '<button data-m="prop"><em>🧰</em>要准备什么<s>' + S.needed.length + ' 样</s></button>';
-    h += '<button data-m="log"><em>📜</em>今晚的记录<s>' + S.history.length + ' 条</s></button>';
+    h += '<button data-m="log"><em>📜</em>记录<s>本局 ' + S.history.length + ' · 真心话 ' + S.truths.length + '</s></button>';
     h += '<button data-m="limits"><em>🚧</em>红线<s>' + (S.blocked.length ? '关了 ' + S.blocked.length + ' 类' : '全开') + '</s></button>';
-    h += '<button data-m="reset"><em>↺</em>重开</button>';
+    h += '<button data-m="rule"><em>📖</em>怎么玩</button>';
+    h += '<button data-m="finish"><em>🏁</em>结束这一局</button>';
+    h += '<button data-m="wipe"><em>🗑</em>清空所有数据</button>';
     h += '</div>';
     sheet(h);
     $$('#ov-body [data-m]').forEach(function (b) {
       b.onclick = function () {
         var m = b.dataset.m;
-        if (m === 'rule') rules();
         if (m === 'pick') openMenu();
         if (m === 'prop') propList();
         if (m === 'log') logs();
         if (m === 'limits') limits();
-        if (m === 'reset') resetMenu();
+        if (m === 'rule') rules();
+        if (m === 'finish') finishSession();
+        if (m === 'wipe') wipeAll();
       };
     });
   }
 
   function rules() {
     var h = '<h3 class="ov-h">怎么玩</h3><ul class="rule">';
-    h += '<li><b>抽卡</b>　三个盒子挑一个，里面可能是真心话、大冒险、惩罚、一起做，也可能反转或幸运。</li>';
+    h += '<li><b>转</b>　先转上面那个盘，决定这把玩什么：真心话 / 大冒险 / 惩罚 / 一起做 / 翻牌子。</li>';
+    h += '<li><b>抽</b>　转到哪类，就从盲盒里抽哪类。转到<b>翻牌子</b>就直接进两个转轮。</li>';
+    h += '<li><b>谁受罚</b>　默认轮流。但点上面两个人的名字可以直接换人——<b>别的游戏输了也能直接点他</b>。</li>';
     h += '<li><b>做不到</b>　点「认输」抽一张代价卡。躲是可以躲的，就是要付钱。</li>';
-    h += '<li><b>真心话</b>　写下来的答案会存进「真心话」，以后能翻出来看。这是这游戏唯一值钱的东西。</li>';
-    h += '<li><b>热度</b>　做完一张加一点，每满 ' + HEAT_STEP + ' 点解锁一次「终极」，里面是最狠的那几张，而且是<b>对方</b>替你抽。</li>';
-    h += '<li><b>卡</b>　免罚和反转各一张，幸运卡还能再发。用掉就没了。</li>';
-    h += '<li><b>翻牌子</b>　菜单里的「点菜」可以直接指定类型。里面还有个<b>翻牌子</b>：两个转轮分开转，上面出动作、下面出部位，合起来就是一张卡。</li>';
-    h += '<li><b>限时</b>　带 ⏱ 的会弹倒计时，时间到就停，做到哪儿算哪儿。</li>';
+    h += '<li><b>真心话</b>　写下来的答案进「真心话」，<b>结束一局也不会清掉</b>，跨局一直留着。</li>';
+    h += '<li><b>热度</b>　每完成一张加一点，每满 ' + HEAT_STEP + ' 点解锁一次「终极」，里面是最狠的那几张，而且是<b>对方</b>替你抽。</li>';
     h += '<li><b>安全词</b>　说出来立刻停，抱六十秒。不用解释，不算输。</li>';
     h += '</ul><button class="btn primary" id="ok">知道了</button>';
     sheet(h);
@@ -606,8 +758,9 @@
   }
 
   function logs() {
-    var h = '<h3 class="ov-h">今晚</h3>';
-    h += '<div class="tabs"><button class="on" data-t="all">抽过的</button><button data-t="ans">真心话</button></div>';
+    var h = '<h3 class="ov-h">记录</h3>';
+    h += '<div class="tabs"><button class="on" data-t="now">本局 ' + S.history.length + '</button>'
+      + '<button data-t="ans">真心话 ' + S.truths.length + '</button></div>';
     h += '<div id="tb"></div>';
     sheet(h);
     $$('.tabs button').forEach(function (b) {
@@ -617,26 +770,35 @@
         fillTab(b.dataset.t);
       };
     });
-    fillTab('all');
+    fillTab('now');
   }
 
   function pretty(r) {
     var other = S.names[0] === r.who ? S.names[1] : S.names[0];
     return esc(r.x).replace(/\{self\}/g, esc(r.who)).replace(/\{other\}/g, esc(other));
   }
+  function stamp(ts) {
+    var d = new Date(ts);
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
   function fillTab(t) {
     var box = $('#tb');
-    var rows = t === 'ans' ? S.history.filter(function (r) { return r.ans; }) : S.history;
+    var rows = t === 'ans' ? S.truths : S.history;
     if (!rows.length) {
-      box.innerHTML = '<div class="empty">' + (t === 'ans' ? '还没人写过答案' : '还没抽过卡') + '</div>';
+      box.innerHTML = '<div class="empty">' + (t === 'ans' ? '还没人写过答案<br>抽到真心话时顺手写一句' : '本局还没抽过卡') + '</div>';
+      return;
+    }
+    if (t === 'ans') {
+      box.innerHTML = '<div class="log">' + rows.slice().reverse().map(function (r) {
+        return '<div><small>' + esc(r.who) + ' · ' + stamp(r.at) + '</small>' + pretty(r)
+          + '<div class="ans">💬 ' + esc(r.ans) + '</div></div>';
+      }).join('') + '</div>';
       return;
     }
     var ST = { done: '做了', skip: '免罚', cost: '付了代价' };
     box.innerHTML = '<div class="log">' + rows.slice().reverse().map(function (r) {
-      var d = new Date(r.at);
-      var t2 = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
-      return '<div><small>' + esc(r.who) + ' · ' + (ST[r.st] || '') + ' · ' + t2 + '</small>'
-        + pretty(r) + (r.ans ? '<div class="ans">' + esc(r.ans) + '</div>' : '') + '</div>';
+      return '<div><small>' + esc(r.who) + ' · ' + (ST[r.st] || '') + ' · ' + stamp(r.at) + '</small>'
+        + pretty(r) + (r.ans ? '<div class="ans">💬 ' + esc(r.ans) + '</div>' : '') + '</div>';
     }).join('') + '</div>';
   }
 
@@ -657,150 +819,80 @@
   }
 
   function openMenu() {
-    var h = '<h3 class="ov-h">点菜</h3><p class="ov-p">想要哪种就点哪种，但抽到什么牌堆说了算。</p>';
+    var h = '<h3 class="ov-h">点菜</h3><p class="ov-p">不想转盘就直接点，但抽到什么牌堆说了算。</p>';
     h += '<div class="menu-list">';
     h += '<button data-t="truth"><em>💬</em>真心话</button>';
     h += '<button data-t="dare"><em>🎯</em>大冒险</button>';
     h += '<button data-t="punish"><em>⚡</em>惩罚</button>';
     h += '<button data-t="duo"><em>💞</em>一起做</button>';
-    h += '<button data-slot="1"><em>🎰</em>翻牌子<s>动作 × 部位</s></button>';
+    h += '<button data-t="slot"><em>🎰</em>翻牌子<s>动作 × 部位</s></button>';
     h += '</div>';
     sheet(h);
     $$('#ov-body [data-t]').forEach(function (b) {
-      b.onclick = function () { shut(); setTimeout(function () { deal(b.dataset.t); }, 200); };
+      b.onclick = function () {
+        var t = b.dataset.t;
+        shut();
+        setTimeout(function () { toBox(t); }, 200);
+      };
     });
-    var s = $('#ov-body [data-slot]');
-    if (s) s.onclick = openSlot;
   }
 
-  /* ── 老虎机：动作 × 部位 ── */
-  function slotList(kind) {
-    var src = window.SLOT[kind];
-    var list = src.filter(function (it) {
-      if (it.lv > S.max) return false;
-      for (var i = 0; i < (it.g || []).length; i++) if (S.blocked.indexOf(it.g[i]) >= 0) return false;
-      return true;
-    });
-    if (!list.length) list = src.filter(function (it) { return it.lv <= S.max; });
-    if (!list.length) list = src;
-    return list;
-  }
-
-  /* 权重公式在 cards.js 里（window.slotWeight），方便测试直接验 */
-  function slotPick(list) {
-    var W = window.slotWeight;
-    var total = 0;
-    var ws = list.map(function (it) { var w = W(it.lv); total += w; return w; });
-    var r = Math.random() * total;
-    for (var i = 0; i < list.length; i++) { r -= ws[i]; if (r <= 0) return list[i]; }
-    return list[list.length - 1];
-  }
-
-  function openSlot() {
-    var na = slotList('act').length, np = slotList('part').length;
-    var h = '<h3 class="ov-h">翻牌子</h3>';
-    h += '<p class="ov-p">两个转轮分开转。上面出动作，下面出部位，合起来就是你这张卡。<br>翻到哪儿就是哪儿，不许挑。</p>';
-    h += '<div class="slot">';
-    h += '<div class="reel" id="reel-act"><span>？？</span></div>';
-    h += '<button class="btn primary sm full" id="spin-act">转动作</button>';
-    h += '<div class="reel" id="reel-part"><span>？？</span></div>';
-    h += '<button class="btn primary sm full" id="spin-part">转部位</button>';
+  /* ── 结束这一局 ──
+     只清「本局」，真心话永久保留。 */
+  function finishSession() {
+    var drew = S.score[0] + S.score[1];
+    var h = '<h3 class="ov-h">这一局结束了</h3>';
+    h += '<div class="sum">';
+    h += '<div class="sum-row"><span>' + esc(S.names[0]) + '</span><b>' + S.score[0] + ' 张</b></div>';
+    h += '<div class="sum-row"><span>' + esc(S.names[1]) + '</span><b>' + S.score[1] + ' 张</b></div>';
+    h += '<div class="sum-row total"><span>一共做了 ' + drew + ' 张 · 热度 ' + S.heat + '</span><b>第 ' + ((S.sessions || 0) + 1) + ' 局</b></div>';
     h += '</div>';
-    h += '<p class="slot-say" id="slot-say">两个都转完就出结果</p>';
-    h += '<button class="btn primary hide" id="slot-done">做了，下一张</button>';
-    h += '<button class="btn ghost hide" id="slot-again">两个重转</button>';
-    h += '<p class="slot-note">当前尺度下：' + na + ' 个动作 × ' + np + ' 个部位 = ' + (na * np) + ' 种组合</p>';
+
+    if (S.truths.length) {
+      h += '<p class="ov-p"><b>真心话留下了 ' + S.truths.length + ' 条</b>，结束一局不会清掉，下次还能翻。</p>';
+    } else {
+      h += '<p class="ov-p">这局没写过真心话。下次抽到真心话，顺手写一句。</p>';
+    }
+
+    h += '<button class="btn primary" id="fs-again">再来一局</button>';
+    h += '<button class="btn ghost" id="fs-home">回首页，今天到这儿</button>';
+    h += '<button class="btn ghost" id="ok">还没完，继续</button>';
     sheet(h);
 
-    var got = { act: null, part: null };
-    var spinning = { act: false, part: false };
-
-    function render() {
-      if (got.act && got.part) {
-        $('#slot-say').innerHTML = '<b>' + esc(selfN()) + '</b>　' + esc(got.act)
-          + '　<b>' + esc(otherN()) + '</b>的' + esc(got.part);
-        $('#slot-done').classList.remove('hide');
-        $('#slot-again').classList.remove('hide');
-        chord([659, 880]);
-        buzz(40);
-      } else if (got.act || got.part) {
-        $('#slot-say').textContent = got.act ? '还要转部位' : '还要转动作';
-      }
-    }
-
-    function spin(which) {
-      if (spinning[which]) return;
-      var list = slotList(which === 'act' ? 'act' : 'part');
-      var final = slotPick(list);
-      var el = $('#reel-' + which);
-      var btn = $('#spin-' + which);
-      spinning[which] = true;
-      btn.disabled = true;
-      el.classList.add('rolling');
-      $('#slot-done').classList.add('hide');
-      $('#slot-again').classList.add('hide');
-
-      var t = 0, delay = 45;
-      var total = 1150 + rnd(450);
-      (function step() {
-        el.querySelector('span').textContent = slotPick(list).x;
-        beep(1400, 0.012, 'square');
-        t += delay;
-        if (t < total * 0.55) delay = 45;
-        else if (t < total * 0.8) delay = 95;
-        else delay = 165;
-        if (t < total) { setTimeout(step, delay); return; }
-        el.querySelector('span').textContent = final.x;
-        el.classList.remove('rolling');
-        el.classList.add('landed');
-        setTimeout(function () { el.classList.remove('landed'); }, 400);
-        got[which] = final.x;
-        spinning[which] = false;
-        btn.disabled = false;
-        beep(880, 0.12, 'triangle');
-        render();
-      })();
-    }
-
-    $('#spin-act').onclick = function () { spin('act'); };
-    $('#spin-part').onclick = function () { spin('part'); };
-    $('#slot-again').onclick = function () {
-      got.act = null; got.part = null;
-      $('#reel-act').querySelector('span').textContent = '？？';
-      $('#reel-part').querySelector('span').textContent = '？？';
-      $('#slot-say').textContent = '两个都转完就出结果';
-      $('#slot-done').classList.add('hide');
-      $('#slot-again').classList.add('hide');
+    $('#fs-again').onclick = function () {
+      S.sessions = (S.sessions || 0) + 1;
+      S.history = [];           // 只清本局
+      S.score = [0, 0];
+      S.heat = 0; S.mult = 1; S.ultUsed = 0; S.round = 1;
+      S.toke = [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }];
+      S.seen = []; S.needed = [];
+      save(); hud(); shut(); showSpin();
+      toast('新的一局');
     };
-    $('#slot-done').onclick = function () {
-      var text = '{self} ' + got.act + ' {other} 的' + got.part;
-      log({ lvl: S.max, t: 'dare', x: text }, 'done');
-      S.score[S.turn]++;
-      S.heat++;
-      S.mult = 1;
-      save(); shut(); hud();
-      toast('热度 +1');
-      bumpHeat();
-      next();
+    $('#fs-home').onclick = function () {
+      S.sessions = (S.sessions || 0) + 1;
+      S.history = []; S.score = [0, 0]; S.heat = 0; S.ultUsed = 0; S.round = 1;
+      S.toke = [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }];
+      S.seen = []; S.needed = [];
+      save(); shut();
+      $('#btn-resume').classList.add('hide');
+      go('sc-setup');
     };
+    $('#ok').onclick = shut;
   }
 
-  function resetMenu() {
-    var h = '<h3 class="ov-h">重开</h3><p class="ov-p">名字和红线都留着，只清空这一局。</p>';
-    h += '<button class="btn primary" id="soft">重开一局</button>';
-    h += '<button class="btn ghost" id="hard">全部清空</button>';
-    h += '<button class="btn ghost" id="ok">继续玩</button>';
+  function wipeAll() {
+    var h = '<h3 class="ov-h">清空所有数据</h3>';
+    h += '<p class="ov-p">名字、红线、本局记录，<b>还有全部 ' + S.truths.length + ' 条真心话</b>，全都会没。<br>这个删了找不回来。</p>';
+    h += '<button class="btn danger" id="yes">确认，全删</button>';
+    h += '<button class="btn ghost" id="ok">算了</button>';
     sheet(h);
-    $('#soft').onclick = function () {
-      S.turn = 0; S.round = 1; S.heat = 0; S.score = [0, 0]; S.mult = 1;
-      S.toke = [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }];
-      S.history = []; S.seen = []; S.needed = []; S.ultUsed = 0;
-      save(); hud(); shut(); toast('重新开始');
-    };
-    $('#hard').onclick = function () {
+    $('#yes').onclick = function () {
       try { localStorage.removeItem(LS); } catch (e) {}
       S = blank();
-      shut(); go('sc-setup');
+      shut();
+      $('#btn-resume').classList.add('hide');
+      go('sc-setup');
     };
     $('#ok').onclick = shut;
   }
@@ -823,7 +915,7 @@
     hud();
     chord([196, 262, 330, 392]);
     toast('轮到 ' + selfN() + ' 抽');
-    setTimeout(function () { deal(null, true); }, 800);
+    setTimeout(function () { show(draw(null, true), false); }, 700);
   }
 
   /* ── 特效 ── */
@@ -863,6 +955,7 @@
   function enterGame() {
     $('#safe-show').textContent = S.safe;
     hud();
+    showSpin();
     go('sc-game');
   }
 
@@ -885,21 +978,28 @@
     };
     $('#back-setup').onclick = function () { go('sc-setup'); };
     $('#start').onclick = function () { freshStart(); hearts(); chord([523, 659, 784, 1046]); };
+
+    $('#who-0').onclick = function () { setTurn(0); };
+    $('#who-1').onclick = function () { setTurn(1); };
+
     boxes();
-    $('#wheel').onclick = openWheel;
+    $('#spin-main').onclick = spinMain;
+    $('#respins').onclick = function () { showSpin(); };
     $('#dice').onclick = openDice;
     $('#ult').onclick = ultOpen;
     $('#menu').onclick = openMenuList;
     $('#safe-line').onclick = safeStop;
-    $('#ov-x').onclick = shut;
-    $('#ov').onclick = function (e) { if (e.target === $('#ov')) shut(); };
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') shut(); });
+    $('#ov-x').onclick = dismiss;
+    $('#ov').onclick = function (e) { if (e.target === $('#ov')) dismiss(); };
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dismiss(); });
   }
 
   function init() {
     S = load() || blank();
     if (S.mult == null) S.mult = 1;
     if (S.ultUsed == null) S.ultUsed = 0;
+    if (S.sessions == null) S.sessions = 0;
+    if (!S.truths) S.truths = [];
     if (!S.needed) S.needed = [];
     if (!S.seen) S.seen = [];
     if (!S.toke) S.toke = [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }];
@@ -907,6 +1007,7 @@
     buildLv();
     buildTags();
     bind();
+    paintWheel();
 
     $('#in-a').value = S.names[0];
     $('#in-b').value = S.names[1];

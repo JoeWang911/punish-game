@@ -53,18 +53,34 @@
 
     <header class="hud">
       <div class="scores">
-        <span class="who" id="who-0"><b id="n-0">宝贝</b><i id="s-0">0</i></span>
-        <span class="who" id="who-1"><b id="n-1">亲爱的</b><i id="s-1">0</i></span>
+        <button class="who" id="who-0"><b id="n-0">宝贝</b><i id="s-0">0</i></button>
+        <button class="who" id="who-1"><b id="n-1">亲爱的</b><i id="s-1">0</i></button>
       </div>
       <button id="menu" class="dots" aria-label="菜单">⋯</button>
     </header>
 
-    <p class="turn" id="turn">轮到 宝贝</p>
+    <p class="turn" id="turn">轮到 <b>宝贝</b></p>
+    <p class="turn-hint" id="turn-hint">点上面的名字可以换人</p>
 
-    <div class="boxes">
-      <button class="box" data-i="0">🎁</button>
-      <button class="box" data-i="1">🎁</button>
-      <button class="box" data-i="2">🎁</button>
+    <!-- 第一步：转类型 -->
+    <div id="step-spin" class="step">
+      <div class="mw-wrap">
+        <div class="mw" id="mw"></div>
+        <div class="mw-pin">▼</div>
+      </div>
+      <p class="mw-say" id="mw-say">转一下，看这把玩什么</p>
+      <button class="btn primary" id="spin-main">转</button>
+    </div>
+
+    <!-- 第二步：挑盲盒 -->
+    <div id="step-pick" class="step hide">
+      <p class="pick-say">这把是　<b id="pick-type">大冒险</b></p>
+      <div class="boxes">
+        <button class="box" data-i="0">🎁</button>
+        <button class="box" data-i="1">🎁</button>
+        <button class="box" data-i="2">🎁</button>
+      </div>
+      <button class="btn ghost" id="respins">不满意，重转</button>
     </div>
 
     <div class="heat">
@@ -72,9 +88,8 @@
       <span id="heat-txt">0 / 8</span>
     </div>
 
-    <div class="pills">
-      <button class="pill" id="wheel">🎡 转盘</button>
-      <button class="pill" id="dice">🎲 骰子</button>
+    <div class="pills two">
+      <button class="pill" id="dice">🎲 谁受罚</button>
       <button class="pill" id="ult" disabled>🌋 终极</button>
     </div>
 

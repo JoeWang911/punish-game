@@ -89,6 +89,16 @@ input[type=text]:focus{border-color:var(--rose)}
 .btn.ghost:hover{color:var(--txt);border-color:var(--line2)}
 .btn:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
 .btn.sm{width:auto;padding:11px 22px;font-size:14px;margin:0}
+.btn.danger{background:#7a1a2e;border-color:#c0344f}
+.btn.danger:hover{background:#96203a}
+
+/* 结束一局的总结 */
+.sum{margin:0 0 20px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.sum-row{display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px;border-bottom:1px solid var(--line);font-size:15px}
+.sum-row:last-child{border-bottom:none}
+.sum-row b{color:var(--rose);font-size:18px}
+.sum-row.total{background:#241424;font-size:13px;color:var(--dim)}
+.sum-row.total b{color:var(--dim2);font-size:13px;font-weight:600}
 
 /* ─────────── 红线 ─────────── */
 .h2{margin:14px 0 8px;font-size:21px;font-weight:700;letter-spacing:.06em}
@@ -105,12 +115,19 @@ input[type=text]:focus{border-color:var(--rose)}
 /* ─────────── 游戏页 ─────────── */
 .game{display:flex;flex-direction:column;min-height:calc(100vh - 60px);min-height:calc(100dvh - 60px)}
 
-.hud{display:flex;align-items:center;justify-content:space-between;margin-bottom:34px}
-.scores{display:flex;gap:22px}
-.who{display:flex;align-items:baseline;gap:7px;opacity:.32;transition:opacity .3s}
-.who b{font-weight:600;font-size:15px}
-.who i{font-style:normal;font-size:21px;font-weight:800;color:var(--rose)}
-.who.on{opacity:1}
+.hud{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}
+.scores{display:flex;gap:10px}
+/* 名字可点：别的游戏输了的人直接点成受罚方 */
+.who{
+  display:flex;align-items:baseline;gap:7px;cursor:pointer;
+  background:none;border:1px solid transparent;border-radius:11px;
+  padding:7px 11px;font:inherit;opacity:.34;transition:.18s;
+}
+.who:hover{opacity:.7;border-color:var(--line)}
+.who b{font-weight:600;font-size:15px;color:var(--txt)}
+.who i{font-style:normal;font-size:20px;font-weight:800;color:var(--rose)}
+.who.on{opacity:1;background:#241424;border-color:var(--rose)}
+.who.on::after{content:"◀";font-size:9px;color:var(--rose);margin-left:1px}
 
 .dots{
   width:36px;height:36px;flex:none;cursor:pointer;border-radius:50%;
@@ -120,12 +137,39 @@ input[type=text]:focus{border-color:var(--rose)}
 .dots:hover{color:var(--txt);border-color:var(--line2)}
 
 .turn{
-  margin:0 0 20px;text-align:center;font-size:14px;color:var(--dim);letter-spacing:.06em;
+  margin:0 0 4px;text-align:center;font-size:15px;color:var(--dim);letter-spacing:.04em;
 }
-.turn b{color:var(--txt);font-weight:600}
+.turn b{color:var(--txt);font-weight:700;font-size:17px}
+.turn-hint{margin:0 0 26px;text-align:center;color:var(--dim2);font-size:11.5px;letter-spacing:.04em}
 
-/* 盲盒：唯一的大重点 */
-.boxes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:auto}
+/* 两步舞台：转 → 抽 */
+.step{min-height:300px;display:flex;flex-direction:column;justify-content:center}
+
+.mw-wrap{position:relative;width:min(60vw,232px);margin:0 auto 18px;aspect-ratio:1}
+.mw{
+  width:100%;height:100%;border-radius:50%;position:relative;overflow:hidden;
+  border:5px solid #2f1a2c;box-shadow:0 12px 34px rgba(0,0,0,.5);
+  transition:transform 4s cubic-bezier(.15,.85,.2,1);
+}
+.mw span{
+  position:absolute;top:50%;left:50%;transform-origin:0 0;
+  font-size:12.5px;font-weight:700;white-space:nowrap;color:#fff;
+  text-shadow:0 1px 3px rgba(0,0,0,.75);
+}
+.mw-pin{
+  position:absolute;top:-15px;left:50%;transform:translateX(-50%);
+  font-size:19px;color:var(--rose);filter:drop-shadow(0 2px 4px rgba(0,0,0,.6));
+}
+.mw-say{
+  min-height:30px;margin:0 0 16px;text-align:center;
+  font-size:22px;font-weight:800;color:var(--txt);letter-spacing:.08em;
+}
+
+.pick-say{margin:0 0 18px;text-align:center;font-size:15px;color:var(--dim);letter-spacing:.04em}
+.pick-say b{color:var(--rose);font-size:20px;font-weight:800;letter-spacing:.08em}
+
+/* 盲盒 */
+.boxes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
 .box{
   aspect-ratio:1/1.1;cursor:pointer;border-radius:var(--r);
   background:linear-gradient(160deg,#2a1226,#1a0e19);
@@ -139,14 +183,14 @@ input[type=text]:focus{border-color:var(--rose)}
 .box.open{background:linear-gradient(160deg,var(--rose-d),#3a1030);border-color:var(--rose)}
 .box.gone{opacity:.2;transform:scale(.92)}
 @keyframes shake{0%,100%{transform:rotate(0)}25%{transform:rotate(-6deg) scale(1.04)}75%{transform:rotate(6deg) scale(1.04)}}
-@keyframes pop{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}
 
-.heat{display:flex;align-items:center;gap:11px;margin:32px 0 16px}
+.heat{display:flex;align-items:center;gap:11px;margin:26px 0 16px}
 .track{flex:1;height:4px;border-radius:9px;background:#241424;overflow:hidden}
 .track i{display:block;height:100%;width:0;border-radius:9px;background:var(--rose);transition:width .45s ease}
 .heat span{font-size:11.5px;color:var(--dim2);font-variant-numeric:tabular-nums;flex:none}
 
 .pills{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.pills.two{grid-template-columns:repeat(2,1fr)}
 .pill{
   padding:13px 6px;cursor:pointer;border-radius:12px;font:inherit;font-size:13px;
   background:#180d17;border:1px solid var(--line);color:var(--dim);transition:.16s;
