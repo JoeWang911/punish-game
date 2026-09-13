@@ -685,6 +685,17 @@
     return list;
   }
 
+  /* 高等级的词权重大：权重 2^(lv-1)。
+     不加权的话，等级越高词表越大，露骨组合反而被稀释——
+     Lv4 下两个轮子都抽到 Lv4 的概率只有 2%，那样就白解锁了。 */
+  function slotPick(list) {
+    var total = 0;
+    var ws = list.map(function (it) { var w = Math.pow(2, it.lv - 1); total += w; return w; });
+    var r = Math.random() * total;
+    for (var i = 0; i < list.length; i++) { r -= ws[i]; if (r <= 0) return list[i]; }
+    return list[list.length - 1];
+  }
+
   function openSlot() {
     var na = slotList('act').length, np = slotList('part').length;
     var h = '<h3 class="ov-h">动作 × 部位</h3>';
@@ -720,7 +731,7 @@
     function spin(which) {
       if (spinning[which]) return;
       var list = slotList(which === 'act' ? 'act' : 'part');
-      var final = pick(list);
+      var final = slotPick(list);
       var el = $('#reel-' + which);
       var btn = $('#spin-' + which);
       spinning[which] = true;
@@ -732,7 +743,7 @@
       var t = 0, delay = 45;
       var total = 1150 + rnd(450);
       (function step() {
-        el.querySelector('span').textContent = pick(list).x;
+        el.querySelector('span').textContent = slotPick(list).x;
         beep(1400, 0.012, 'square');
         t += delay;
         if (t < total * 0.55) delay = 45;

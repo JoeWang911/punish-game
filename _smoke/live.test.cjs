@@ -69,6 +69,27 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
   }
   check('连抽 4 张都正常（共 ' + (n + 1) + ' 张）', n === 4, '成功 ' + n);
 
+  console.log('\n── 老虎机（线上）──');
+  $('#menu').click();
+  check('菜单能开', await until(() => $('#ov-body [data-m="pick"]')));
+  $('#ov-body [data-m="pick"]').click();
+  check('点菜里有「动作 × 部位」', await until(() => $('#ov-body [data-slot]')));
+  $('#ov-body [data-slot]').click();
+  check('老虎机界面渲染出来了', await until(() => $('#spin-act') && $('#spin-part')));
+  $('#spin-act').click();
+  await until(() => !$('#spin-act').disabled, 6000);
+  const a1 = $('#reel-act span').textContent;
+  check('上轮转出动作：' + a1, a1 !== '？？' && a1.length > 0);
+  $('#spin-part').click();
+  await until(() => !$('#spin-part').disabled, 6000);
+  const p1 = $('#reel-part span').textContent;
+  check('下轮转出部位：' + p1, p1 !== '？？' && p1.length > 0);
+  check('合成结果句带人名', await until(() => $('#slot-say').textContent.includes('阿离') && $('#slot-say').textContent.includes('小满'), 3000),
+    $('#slot-say').textContent);
+  const heatLine = parseInt($('#heat-txt').textContent, 10);
+  $('#slot-done').click(); await wait(400);
+  check('老虎机结果计入热度', parseInt($('#heat-txt').textContent, 10) === heatLine + 1, $('#heat-txt').textContent);
+
   console.log('\n── 转盘 / 安全词 ──');
   $('#wheel').click();
   check('转盘能开', await until(() => $('#spin')));

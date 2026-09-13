@@ -278,6 +278,32 @@ async function boot(base, seed) {
   check('记录里占位符已还原成人名', !logHtml.includes('{self}') && !logHtml.includes('{other}'));
   shut(win); await wait(150);
 
+  console.log('\n── 10.6 · 转轮会不会越玩越热 ──');
+  // 当前尺度 Lv3。如果不加权，Lv1 的词会因为数量多而占上风；
+  // 加了 2^(lv-1) 权重之后 Lv3 应该明显压过 Lv1。
+  const SLOT = win.SLOT;
+  const lvOf = (kind, x) => (SLOT[kind].find(it => it.x === x) || { lv: 0 }).lv;
+  let lowN = 0, highN = 0, samples = [];
+  for (let i = 0; i < 12; i++) {
+    $('#menu').click();
+    if (!await until(() => $('#ov-body [data-m="pick"]'), 2000)) break;
+    $('#ov-body [data-m="pick"]').click();
+    if (!await until(() => $('#ov-body [data-slot]'), 2000)) break;
+    $('#ov-body [data-slot]').click();
+    if (!await until(() => $('#spin-act'), 2000)) break;
+    $('#spin-act').click();
+    if (!await until(() => !$('#spin-act').disabled, 6000)) break;
+    const got = $('#reel-act span').textContent;
+    const lv = lvOf('act', got);
+    samples.push(got + '(Lv' + lv + ')');
+    if (lv === 1) lowN++;
+    if (lv === 3) highN++;
+    shut(win); await wait(120);
+  }
+  check('抽到 ' + samples.length + ' 个动作样本', samples.length >= 10, samples.join(' '));
+  check('高等级词明显多于低等级词（' + highN + ' : ' + lowN + '）', highN > lowN, samples.join(' '));
+  console.log('     ' + samples.join('  '));
+
   console.log('\n── 11 · 安全词 ──');
   $('#safe-line').click(); await wait(180);
   check('安全词弹层', $('#ov-body').textContent.includes('停了'));
