@@ -394,7 +394,12 @@ async function boot(base, seed) {
   check('名字回填', d2.querySelector('#in-a').value === '阿离' && d2.querySelector('#in-b').value === '小满');
   check('安全词回填', d2.querySelector('#in-safe').value === '西瓜');
   check('尺度回填 Lv4', d2.querySelector('#lv button.on').dataset.lv === '4');
-  d2.querySelector('#btn-resume').click(); await wait(300);
+  // 存档停在 Lv4，接着上一局也要先过密码（否则刷新一次密码就白设了）
+  d2.querySelector('#btn-resume').click(); await wait(400);
+  check('Lv4 存档点「接着上一局」要先验密码', !!d2.querySelector('#pin'));
+  check('验密码之前没进游戏页', !d2.querySelector('#sc-game').classList.contains('on'));
+  d2.querySelector('#pin').value = '0519';
+  d2.querySelector('#pin-go').click(); await wait(500);
   check('点进游戏页', d2.querySelector('#sc-game').classList.contains('on'));
   check('Lv4 存档显示「已满档」而不是升级目标', d2.querySelector('#heat-txt').textContent.includes('已满档'), d2.querySelector('#heat-txt').textContent);
   check('分数恢复 6/4', d2.querySelector('#s-0').textContent === '6' && d2.querySelector('#s-1').textContent === '4');
@@ -782,6 +787,72 @@ async function boot(base, seed) {
     check('升到 Lv3 成功', $10('#lv-chip').textContent.includes('Lv3'), $10('#lv-chip').textContent);
   }
   dom10.window.close();
+
+  console.log('\n── 24 · Lv4 密码门：刷新后不能绕过（回归）──');
+  // 之前只拦住了「主页点击」和「游戏内切换」。
+  // 但存档停在 Lv4 时，init 会把主页按钮回填成选中，
+  // 于是「下一步→开始」和「接着上一局」都直接进了 Lv4——密码等于消失。
+  const lv4Seed = {
+    names: ['阿离', '小满'], safe: '菠萝', max: 4, blocked: [], turn: 0, round: 3,
+    score: [2, 1], mult: 1, armed: [0, 0], ultPending: [false, false], prompted16: false,
+    toke: [{ skip: 1, rev: 1 }, { skip: 1, rev: 1 }], needed: [], seen: [],
+    history: [{ at: Date.now(), who: '阿离', lvl: 4, t: 'dare', x: '占位', st: 'done', ans: '' }],
+    truths: [], sessions: 1
+  };
+
+  const dA = await boot(base, lv4Seed);
+  const wA = dA.window, dA_ = wA.document;
+  const $A = s => dA_.querySelector(s);
+  const $$A = s => Array.from(dA_.querySelectorAll(s));
+  const lvOnA = () => $A('#lv button.on') && $A('#lv button.on').dataset.lv;
+
+  check('存档停在 Lv4，主页回填成选中', lvOnA() === '4', lvOnA());
+  check('Lv4 按钮上标了需要密码', /🔒|需要密码/.test($$A('#lv button').find(b => b.dataset.lv === '4').textContent),
+    $$A('#lv button').find(b => b.dataset.lv === '4').textContent.trim());
+
+  // 路径 1：下一步 → 应该被拦住
+  $A('#to-limits').click(); await wait(350);
+  check('🔥 点「下一步」会先要密码', !!$A('#pin'), $A('#pin') ? '' : '(没拦住)');
+  check('拦住时没有进红线页', !$A('#sc-limits').classList.contains('on'));
+  $A('#pin').value = '0000';
+  $A('#pin-go').click(); await wait(300);
+  check('密码错了进不去', !$A('#sc-limits').classList.contains('on') && !!$A('#pin'));
+  $A('#pin-no').click(); await wait(250);
+  check('点「算了」回到主页', $A('#sc-setup').classList.contains('on') && $A('#ov').classList.contains('hide'));
+
+  // 路径 2：接着上一局 → 应该被拦住
+  $A('#btn-resume').click(); await wait(350);
+  check('🔥 点「接着上一局」会先要密码', !!$A('#pin'), $A('#pin') ? '' : '(没拦住)');
+  check('拦住时没有进游戏页', !$A('#sc-game').classList.contains('on'));
+  $A('#pin').value = '0519';
+  $A('#pin-go').click(); await wait(500);
+  check('密码对了才进游戏', $A('#sc-game').classList.contains('on'));
+  check('进去就是 Lv4', $A('#lv-chip').textContent.includes('Lv4'), $A('#lv-chip').textContent);
+
+  // 同一次打开里已经验过，再点「下一步」不该重复问
+  $A('#menu').click(); await wait(250);
+  $A('#ov-x').click(); await wait(200);
+
+  // 游戏内从低档切回 Lv4：应该再问一次
+  $A('#lv-chip').click(); await wait(300);
+  $A('#ov-body [data-lv="3"]').click(); await wait(400);
+  check('先切到 Lv3', $A('#lv-chip').textContent.includes('Lv3'), $A('#lv-chip').textContent);
+  $A('#lv-chip').click(); await wait(300);
+  $A('#ov-body [data-lv="4"]').click(); await wait(350);
+  check('🔥 游戏内切回 Lv4 要重新验密码', !!$A('#pin'), $A('#pin') ? '' : '(没拦住)');
+  $A('#pin').value = '0519';
+  $A('#pin-go').click(); await wait(500);
+  check('验完切回 Lv4', $A('#lv-chip').textContent.includes('Lv4'), $A('#lv-chip').textContent);
+  dA.window.close();
+
+  console.log('\n── 24.1 · 干净打开页面时 Lv4 也要密码 ──');
+  const dB = await boot(base);
+  const dB_ = dB.window.document;
+  const $B = s => dB_.querySelector(s);
+  const $$B = s => Array.from(dB_.querySelectorAll(s));
+  check('默认在 Lv2，没被 Lv4 污染', $B('#lv button.on').dataset.lv === '2', $B('#lv button.on').dataset.lv);
+  check('Lv4 按钮标着需要密码', /需要密码/.test($$B('#lv button').find(b => b.dataset.lv === '4').textContent));
+  dB.window.close();
 
   console.log('\n════════════════════════');
   console.log('  通过 ' + pass + '，失败 ' + fail);

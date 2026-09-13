@@ -17,6 +17,9 @@
 
   var LS = 'punish-game-v1';
   var LV4_PIN = '0519';    // 进 Lv4 的密码。想换改这里就行。
+  var lv4Open = false;     // 这一次打开页面里验过密码没有。
+                           // 存档里如果停在 Lv4，刷新后必须重新验——否则
+                           // 「接着上一局」和主页回填的选中状态会直接绕过密码。
   var LEVEL_UP_AT = 16;   // 两人积分之和到这个数，问要不要升一档
   var ULT_EVERY = 4;      // 个人积分每到 4 的倍数，武装一次终极模式
   var REVERSE_P = 0.04;   // 反转：这张转给对方
@@ -181,10 +184,9 @@
       if (+k === 2) b.className = 'on';
       b.innerHTML = '<em>' + L.i + '</em><span>' + esc(L.n) + '<small>' + esc(L.d) + '</small></span>';
       b.onclick = function () {
-        var lv = +k;
-        if (lv === 4) {
-          // 主页上选 Lv4 也要密码
-          askPassword(function () { pickLv(b); });
+        // 主页上每次点 Lv4 都要重新验（已经停在 Lv4 时除外）
+        if (+k === 4 && +$('#lv button.on').dataset.lv !== 4) {
+          pinThen(function () { pickLv(b); });
           return;
         }
         pickLv(b);
@@ -219,7 +221,25 @@
   }
 
   /* ── Lv4 密码门 ──
-     Lv4 是最露骨的一档，从主页选中、或者游戏里切过去，都要先输密码。 */
+     Lv4 是最露骨的一档。以下每一条路都要先验密码：
+       · 主页上选中 Lv4
+       · 主页点「下一步」（存档停在 Lv4 时回填的选中状态也算）
+       · 「接着上一局」（存档停在 Lv4 时）
+       · 游戏里从低档切上去（每次切上去都要重新验）
+     只有「同一次打开页面里已经验过、并且没离开过 Lv4」才不重复问。 */
+  function pinThen(fn) {
+    askPassword(function () { lv4Open = true; paintLvLock(); fn(); });
+  }
+
+  function paintLvLock() {
+    $$('#lv button').forEach(function (b) {
+      if (+b.dataset.lv !== 4) return;
+      var L = window.LEVELS[4];
+      b.innerHTML = '<em>' + L.i + '</em><span>' + esc(L.n)
+        + '<small>' + esc(L.d) + (lv4Open ? '' : ' · 🔒 需要密码') + '</small></span>';
+    });
+  }
+
   function askPassword(onOk) {
     var h = '<h3 class="ov-h">🔒 Lv4 需要密码</h3>';
     h += '<p class="ov-p">Lv4 是最高的一档，进去之前先输密码。<br>两个人商量好了再进。</p>';
@@ -306,11 +326,11 @@
     if (S.ultPending[i]) showSpin();
   }
 
-  /* 换等级：题目跟着换。进 Lv4 要先过密码。 */
+  /* 换等级：题目跟着换。从低档往 Lv4 切时，每次都要重新验密码。 */
   function setLevel(lv) {
     if (lv === 4 && S.max !== 4) {
       shut();
-      askPassword(function () { applyLevel(4); });
+      pinThen(function () { applyLevel(4); });
       return;
     }
     applyLevel(lv);
@@ -1413,12 +1433,23 @@
   }
 
   /* ── 绑定 ── */
+  function toLimits() {
+    readSetup();
+    $('#safe-show').textContent = S.safe;
+    go('sc-limits');
+    chord([523, 659]);
+  }
+
+  function resume() {
+    enterGame();
+  }
+
   function bind() {
     $('#to-limits').onclick = function () {
+      // 存档停在 Lv4 时，主页按钮会被回填成选中——这条路也得验密码
       readSetup();
-      $('#safe-show').textContent = S.safe;
-      go('sc-limits');
-      chord([523, 659]);
+      if (S.max === 4 && !lv4Open) { pinThen(toLimits); return; }
+      toLimits();
     };
     $('#back-setup').onclick = function () { go('sc-setup'); };
     $('#start').onclick = function () { freshStart(); hearts(); chord([523, 659, 784, 1046]); };
@@ -1465,8 +1496,13 @@
       var b = $('#btn-resume');
       b.classList.remove('hide');
       b.textContent = '接着上一局（' + S.history.length + ' 条 · 已做 ' + (S.score[0] + S.score[1]) + ' 张）';
-      b.onclick = enterGame;
+      b.onclick = function () {
+        // 存档停在 Lv4 时，接着上一局也得先验密码
+        if (S.max === 4 && !lv4Open) { pinThen(resume); return; }
+        resume();
+      };
     }
+    paintLvLock();
   }
 
   document.addEventListener('DOMContentLoaded', init);
