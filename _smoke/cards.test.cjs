@@ -187,10 +187,39 @@ check('4 档 × 300 次，从不出别档的词', slotBad2.length === 0, slotBad
 // 红线标签仍然生效
 let slotBad3 = [];
 for (let i = 0; i < 200; i++) {
-  const a = slotPick(4, 'act', ['痕迹']);
-  if ((a.g || []).indexOf('痕迹') >= 0) slotBad3.push('关掉痕迹后仍抽到 ' + a.x);
+  const a = slotPick(4, 'act', ['留痕']);
+  if ((a.g || []).indexOf('留痕') >= 0) slotBad3.push('关掉痕迹后仍抽到 ' + a.x);
 }
-check('关掉「痕迹」后 Lv4 不再出留印类的词', slotBad3.length === 0, slotBad3.slice(0, 3).join(' ; '));
+check('关掉「留痕」后 Lv4 不再出留印类的词', slotBad3.length === 0, slotBad3.slice(0, 3).join(' ; '));
+
+console.log('\n── 红线标签体系 ──');
+const ids = TAGS.slice();
+check('11 个标签', ids.length === 11, '实际 ' + ids.length);
+check('每个标签都有说明', win.TAGS.every(t => t.d && t.d.length > 4));
+check('标签 id 不重复', new Set(ids).size === ids.length);
+check('标签说明不重复', new Set(win.TAGS.map(t => t.d)).size === ids.length);
+
+// 每个标签都得真的挂到东西上，否则就是死标签
+const usedInPool = {};
+ids.forEach(id => { usedInPool[id] = 0; });
+all.forEach(c => (c.g || []).forEach(g => { if (usedInPool[g] !== undefined) usedInPool[g]++; }));
+SLOT.act.concat(SLOT.part).forEach(it => (it.g || []).forEach(g => { if (usedInPool[g] !== undefined) usedInPool[g]++; }));
+SP.cost.forEach(c => (c.g || []).forEach(g => { if (usedInPool[g] !== undefined) usedInPool[g]++; }));
+const dead = ids.filter(id => usedInPool[id] === 0);
+check('没有空标签（每个至少挂到 1 处）', dead.length === 0, '空的: ' + dead.join(', '));
+const thin = ids.filter(id => usedInPool[id] < 3);
+check('没有过薄的标签（每个至少 3 处，实际最薄 ' + Math.min.apply(null, ids.map(i => usedInPool[i])) + '）',
+  thin.length === 0, '过薄: ' + thin.join(', '));
+ids.forEach(id => console.log('   ' + id.padEnd(6) + String(usedInPool[id]).padStart(3) + ' 处'));
+
+// 迁移用的旧名字不能和现用 id 撞
+const cur = new Set(ids);
+const clash = [];
+win.TAGS.forEach(t => (t.was || []).forEach(old => { if (cur.has(old)) clash.push(old); }));
+check('旧标签名不会和现用名冲突', clash.length === 0, clash.join('; '));
+const wasAll = win.TAGS.flatMap(t => t.was || []);
+check('旧标签名不重复', new Set(wasAll).size === wasAll.length, wasAll.join(','));
+check('每个改名过的标签都留了 was', wasAll.length >= 8, '实际 ' + wasAll.length);
 
 console.log('\n── 尺寸与道具 ──');
 check('道具清单 12 项且无重复', PROPS.length === 12 && new Set(PROPS).size === 12, '实际 ' + PROPS.length);

@@ -91,7 +91,7 @@ async function boot(base, seed) {
   $$('#lv button').find(b => b.dataset.lv === '3').click();
   $('#to-limits').click();
   check('进入红线页', $('#sc-limits').classList.contains('on'));
-  $$('#tags button').find(b => b.dataset.tag === '绑缚').click();
+  $$('#tags button').find(b => b.dataset.tag === '绑束').click();
   $('#start').click();
   check('进入游戏页', $('#sc-game').classList.contains('on'));
   check('名字正确', $('#n-0').textContent === '阿离' && $('#n-1').textContent === '小满');
@@ -404,6 +404,17 @@ async function boot(base, seed) {
   d2.querySelectorAll('.tabs button')[1].click(); await wait(200);
   check('真心话旧答案读得出', d2.querySelector('#tb').innerHTML.includes('锁骨'));
   check('旧卡里的 {other} 还原成人名', d2.querySelector('#tb').innerHTML.includes('小满') && !d2.querySelector('#tb').innerHTML.includes('{other}'));
+  // 这份存档里的 blocked 用的是旧标签名「拍摄」。
+  // 迁移只发生在内存里（load 时映射），localStorage 里还是老种子，
+  // 所以要看界面有没有把它显示成已屏蔽——那才是用户能看到的真实结果。
+  d2.querySelector('#ov-x').click(); await wait(250);
+  d2.querySelector('#menu').click(); await wait(250);
+  d2.querySelector('#ov-body [data-m="limits"]').click(); await wait(300);
+  const tagBtns = Array.from(d2.querySelectorAll('#tags2 button'));
+  const imgBtn = tagBtns.find(b => b.dataset.tag === '影像');
+  check('🔥 旧标签名自动迁移（拍摄 → 影像），红线里显示为已屏蔽',
+    !!imgBtn && imgBtn.classList.contains('off'), imgBtn ? imgBtn.className : '没找到「影像」');
+  check('旧的「拍摄」已经不在清单里', !tagBtns.some(b => b.dataset.tag === '拍摄'));
   w2.close();
 
   console.log('\n── 17 · 旧存档兼容（真心话原本混在 history 里）──');

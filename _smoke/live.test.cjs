@@ -41,9 +41,9 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
   check('页面标题正确', doc.title === '惩罚游戏', doc.title);
   check('样式表从线上加载成功', Array.from(doc.styleSheets).length > 0);
   check('cards.js 生效（尺度 4 档）', $$('#lv button').length === 4, '实际 ' + $$('#lv button').length);
-  check('红线 11 项（含性行为 / 拍打）', $$('#tags button').length === 11, '实际 ' + $$('#tags button').length);
+  check('红线 11 项（含性行为 / 疼痛）', $$('#tags button').length === 11, '实际 ' + $$('#tags button').length);
   check('红线里有「性行为」', $$('#tags button').some(b => b.dataset.tag === '性行为'));
-  check('红线里有「拍打」', $$('#tags button').some(b => b.dataset.tag === '拍打'));
+  check('红线里有「疼痛」', $$('#tags button').some(b => b.dataset.tag === '疼痛'));
   check('JS 文件都是 200（无 404）', failed.length === 0, failed.slice(0, 3).join(' | '));
 
   console.log('\n── 线上开局 ──');

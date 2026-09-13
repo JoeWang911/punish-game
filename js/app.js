@@ -74,6 +74,22 @@
     keep.forEach(function (k) { o[k] = S[k]; });
     try { localStorage.setItem(LS, JSON.stringify(o)); } catch (e) {}
   }
+  /* 标签改过名。老存档里存的是旧名字，直接放着会变成「没屏蔽任何东西」，
+     所以加载时按 TAGS[].was 把旧名映射成新名。 */
+  function migrateTags(list) {
+    if (!list || !list.length) return [];
+    var map = {};
+    window.TAGS.forEach(function (t) {
+      (t.was || []).forEach(function (old) { map[old] = t.id; });
+    });
+    var out = [];
+    list.forEach(function (id) {
+      var to = map[id] || id;
+      if (out.indexOf(to) < 0) out.push(to);
+    });
+    return out;
+  }
+
   function load() {
     try {
       var raw = localStorage.getItem(LS);
@@ -81,13 +97,16 @@
       var d = JSON.parse(raw);
       var s = blank();
       Object.keys(s).forEach(function (k) { if (d[k] !== undefined) s[k] = d[k]; });
-      // 老存档兼容：以前真心话是混在 history 里的
+      // 老存档兼容 1：以前真心话是混在 history 里的
       if (!Array.isArray(s.truths)) s.truths = [];
       s.history.forEach(function (r) {
         if (r.ans && !s.truths.some(function (t) { return t.at === r.at && t.ans === r.ans; })) {
           s.truths.push({ at: r.at, who: r.who, x: r.x, ans: r.ans });
         }
       });
+      // 老存档兼容 2：标签改名
+      var known = window.TAGS.map(function (t) { return t.id; });
+      s.blocked = migrateTags(d.blocked).filter(function (id) { return known.indexOf(id) >= 0; });
       return s;
     } catch (e) { return null; }
   }
