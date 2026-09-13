@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f070e">
+<title>惩罚游戏</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="glow"></div>
+<div id="hearts" class="hearts"></div>
+
+<!-- ═══════════ 1 · 设置 ═══════════ -->
+<section id="sc-setup" class="screen on">
+  <div class="wrap">
+    <h1 class="logo">惩罚游戏</h1>
+    <p class="logo-sub">真心话 · 大冒险 · 盲盒</p>
+
+    <div class="names">
+      <input id="in-a" type="text" maxlength="6" placeholder="你" value="宝贝">
+      <span class="amp">＆</span>
+      <input id="in-b" type="text" maxlength="6" placeholder="TA" value="亲爱的">
+    </div>
+
+    <p class="label">玩到哪一档</p>
+    <div id="lv" class="lv"></div>
+
+    <p class="label">安全词</p>
+    <input id="in-safe" type="text" maxlength="6" value="菠萝">
+    <p class="tip">谁说出这个词，游戏立刻停，改成抱六十秒。不用理由，不算认输。</p>
+
+    <button id="to-limits" class="btn primary">下一步</button>
+    <button id="btn-resume" class="btn ghost hide">接着上一局</button>
+  </div>
+</section>
+
+<!-- ═══════════ 2 · 红线 ═══════════ -->
+<section id="sc-limits" class="screen">
+  <div class="wrap">
+    <h2 class="h2">哪些不玩</h2>
+    <p class="tip">默认都可以。点一下变灰，这类卡就不会出现。各点各的，不用解释。</p>
+    <div id="tags" class="tags"></div>
+    <button id="start" class="btn primary">开始</button>
+    <button id="back-setup" class="btn ghost">返回</button>
+  </div>
+</section>
+
+<!-- ═══════════ 3 · 游戏 ═══════════ -->
+<section id="sc-game" class="screen">
+  <div class="wrap game">
+
+    <header class="hud">
+      <div class="scores">
+        <span class="who" id="who-0"><b id="n-0">宝贝</b><i id="s-0">0</i></span>
+        <span class="who" id="who-1"><b id="n-1">亲爱的</b><i id="s-1">0</i></span>
+      </div>
+      <button id="menu" class="dots" aria-label="菜单">⋯</button>
+    </header>
+
+    <p class="turn" id="turn">轮到 宝贝</p>
+
+    <div class="boxes">
+      <button class="box" data-i="0">🎁</button>
+      <button class="box" data-i="1">🎁</button>
+      <button class="box" data-i="2">🎁</button>
+    </div>
+
+    <div class="heat">
+      <div class="track"><i id="heat-fill"></i></div>
+      <span id="heat-txt">0 / 8</span>
+    </div>
+
+    <div class="pills">
+      <button class="pill" id="wheel">🎡 转盘</button>
+      <button class="pill" id="dice">🎲 骰子</button>
+      <button class="pill" id="ult" disabled>🌋 终极</button>
+    </div>
+
+    <button id="safe-line" class="safe-line">安全词 <b id="safe-show">菠萝</b> · 点这里立刻停</button>
+  </div>
+</section>
+
+<!-- ═══════════ 弹层 ═══════════ -->
+<div id="ov" class="ov hide">
+  <div class="ov-box">
+    <button id="ov-x" class="ov-x" aria-label="关闭">✕</button>
+    <div id="ov-body"></div>
+  </div>
+</div>
+
+<div id="timer" class="timer hide">
+  <div class="ring">
+    <svg viewBox="0 0 120 120">
+      <circle class="ring-bg" cx="60" cy="60" r="54"></circle>
+      <circle id="ring-fg" class="ring-fg" cx="60" cy="60" r="54"></circle>
+    </svg>
+    <div id="timer-num" class="timer-num">30</div>
+  </div>
+  <p id="timer-label" class="timer-label">限时</p>
+  <div class="timer-row">
+    <button id="timer-again" class="btn ghost sm">重来</button>
+    <button id="timer-stop" class="btn primary sm">结束</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="js/cards.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

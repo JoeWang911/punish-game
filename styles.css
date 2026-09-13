@@ -1,0 +1,315 @@
+/* ============================================================
+ *  惩罚游戏 · 样式
+ *  原则：一屏一个重点。少边框、少发光、多留白。
+ * ============================================================ */
+:root{
+  --bg:#0f070e;
+  --card:#1b0f1a;
+  --card2:#241424;
+  --line:rgba(255,255,255,.09);
+  --line2:rgba(255,255,255,.16);
+  --txt:#f2e6ee;
+  --dim:#8d7a8a;
+  --dim2:#6b5a6a;
+  --rose:#ff4d7e;
+  --rose-d:#c0205a;
+  --gold:#e2b06a;
+  --r:16px;
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%}
+body{
+  background:var(--bg);color:var(--txt);
+  font:15px/1.65 "PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  overflow-x:hidden;
+}
+
+/* 背景只留一层很淡的暖光 */
+.glow{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(60vmax 40vmax at 50% -10%, rgba(255,77,126,.13), transparent 70%),
+    radial-gradient(50vmax 40vmax at 50% 110%, rgba(226,176,106,.07), transparent 70%);
+}
+
+.screen{display:none;position:relative;z-index:2;min-height:100vh;min-height:100dvh;padding:26px 20px 34px}
+.screen.on{display:block;animation:fade .3s ease both}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.wrap{max-width:430px;margin:0 auto}
+.hide{display:none!important}
+.mt{margin-top:22px}
+
+/* ─────────── 首页 ─────────── */
+.logo{
+  margin:34px 0 6px;text-align:center;font-size:29px;font-weight:800;letter-spacing:.16em;
+  background:linear-gradient(100deg,#fff,var(--rose) 55%,#ff9ab5);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.logo-sub{margin:0 0 38px;text-align:center;color:var(--dim2);font-size:12.5px;letter-spacing:.2em}
+
+.names{display:flex;align-items:center;gap:10px;margin-bottom:30px}
+.names input{flex:1;min-width:0;text-align:center}
+.amp{color:var(--dim2);font-size:15px;flex:none}
+
+.label{margin:0 0 10px;color:var(--dim);font-size:12.5px;letter-spacing:.08em}
+.tip{margin:10px 0 0;color:var(--dim2);font-size:12.5px;line-height:1.7}
+
+input[type=text]{
+  width:100%;padding:14px;border-radius:13px;
+  background:#180d17;border:1px solid var(--line);color:var(--txt);
+  font:inherit;font-size:16px;outline:none;transition:border-color .18s;
+}
+input[type=text]:focus{border-color:var(--rose)}
+
+/* 尺度：一行一个，看得清 */
+.lv{display:grid;gap:8px;margin-bottom:26px}
+.lv button{
+  display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;cursor:pointer;
+  background:#180d17;border:1px solid var(--line);border-radius:13px;
+  color:var(--txt);font:inherit;text-align:left;transition:.16s;
+}
+.lv button:hover{border-color:var(--line2)}
+.lv button em{font-style:normal;font-size:19px;flex:none}
+.lv button span{display:block;font-weight:600}
+.lv button small{display:block;color:var(--dim2);font-size:12px;margin-top:1px}
+.lv button.on{background:#2a1226;border-color:var(--rose)}
+.lv button.on small{color:var(--dim)}
+
+/* ─────────── 按钮 ─────────── */
+.btn{
+  display:block;width:100%;padding:15px;margin-top:12px;cursor:pointer;
+  border:1px solid transparent;border-radius:13px;font:inherit;
+  font-size:16px;font-weight:700;letter-spacing:.05em;color:#fff;transition:.16s;
+}
+.btn.primary{background:var(--rose);box-shadow:0 8px 22px rgba(192,32,90,.36)}
+.btn.primary:hover{background:#ff628c;transform:translateY(-1px)}
+.btn.primary:active{transform:none}
+.btn.ghost{background:transparent;border-color:var(--line);color:var(--dim)}
+.btn.ghost:hover{color:var(--txt);border-color:var(--line2)}
+.btn:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
+.btn.sm{width:auto;padding:11px 22px;font-size:14px;margin:0}
+
+/* ─────────── 红线 ─────────── */
+.h2{margin:14px 0 8px;font-size:21px;font-weight:700;letter-spacing:.06em}
+.tags{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:20px 0 26px}
+.tags button{
+  padding:13px;cursor:pointer;text-align:left;font:inherit;font-size:14px;
+  background:#2a1226;border:1px solid var(--rose);border-radius:12px;color:var(--txt);
+  transition:.16s;
+}
+.tags button small{display:block;color:var(--dim);font-size:11.5px;margin-top:2px}
+.tags button.off{background:#180d17;border-color:var(--line);color:var(--dim2)}
+.tags button.off small{color:#54454f}
+
+/* ─────────── 游戏页 ─────────── */
+.game{display:flex;flex-direction:column;min-height:calc(100vh - 60px);min-height:calc(100dvh - 60px)}
+
+.hud{display:flex;align-items:center;justify-content:space-between;margin-bottom:34px}
+.scores{display:flex;gap:22px}
+.who{display:flex;align-items:baseline;gap:7px;opacity:.32;transition:opacity .3s}
+.who b{font-weight:600;font-size:15px}
+.who i{font-style:normal;font-size:21px;font-weight:800;color:var(--rose)}
+.who.on{opacity:1}
+
+.dots{
+  width:36px;height:36px;flex:none;cursor:pointer;border-radius:50%;
+  background:transparent;border:1px solid var(--line);color:var(--dim);
+  font-size:17px;line-height:1;transition:.16s;
+}
+.dots:hover{color:var(--txt);border-color:var(--line2)}
+
+.turn{
+  margin:0 0 20px;text-align:center;font-size:14px;color:var(--dim);letter-spacing:.06em;
+}
+.turn b{color:var(--txt);font-weight:600}
+
+/* 盲盒：唯一的大重点 */
+.boxes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:auto}
+.box{
+  aspect-ratio:1/1.1;cursor:pointer;border-radius:var(--r);
+  background:linear-gradient(160deg,#2a1226,#1a0e19);
+  border:1px solid var(--line);font-size:34px;
+  display:flex;align-items:center;justify-content:center;
+  transition:.2s;padding:0;
+}
+.box:hover:not(:disabled){transform:translateY(-4px);border-color:var(--rose)}
+.box:active:not(:disabled){transform:scale(.96)}
+.box.opening{animation:shake .3s ease 2}
+.box.open{background:linear-gradient(160deg,var(--rose-d),#3a1030);border-color:var(--rose)}
+.box.gone{opacity:.2;transform:scale(.92)}
+@keyframes shake{0%,100%{transform:rotate(0)}25%{transform:rotate(-6deg) scale(1.04)}75%{transform:rotate(6deg) scale(1.04)}}
+@keyframes pop{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}
+
+.heat{display:flex;align-items:center;gap:11px;margin:32px 0 16px}
+.track{flex:1;height:4px;border-radius:9px;background:#241424;overflow:hidden}
+.track i{display:block;height:100%;width:0;border-radius:9px;background:var(--rose);transition:width .45s ease}
+.heat span{font-size:11.5px;color:var(--dim2);font-variant-numeric:tabular-nums;flex:none}
+
+.pills{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.pill{
+  padding:13px 6px;cursor:pointer;border-radius:12px;font:inherit;font-size:13px;
+  background:#180d17;border:1px solid var(--line);color:var(--dim);transition:.16s;
+}
+.pill:hover:not(:disabled){color:var(--txt);border-color:var(--line2)}
+.pill:disabled{opacity:.3;cursor:not-allowed}
+.pill.ready{border-color:var(--gold);color:var(--gold)}
+
+.safe-line{
+  display:block;width:100%;margin-top:22px;padding:8px;cursor:pointer;
+  background:none;border:none;color:var(--dim2);font:inherit;font-size:11.5px;letter-spacing:.06em;
+}
+.safe-line b{color:var(--gold);font-weight:600}
+.safe-line:hover{color:var(--dim)}
+
+/* ─────────── 弹层 ─────────── */
+.ov{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-end;justify-content:center;
+  background:rgba(8,3,7,.78);backdrop-filter:blur(6px);padding:0}
+.ov-box{
+  position:relative;width:100%;max-width:470px;max-height:92vh;overflow-y:auto;
+  background:var(--card);border:1px solid var(--line);border-radius:22px 22px 0 0;
+  padding:30px 22px calc(28px + env(safe-area-inset-bottom));
+  animation:slide .28s cubic-bezier(.2,.9,.3,1) both;
+}
+@keyframes slide{from{transform:translateY(26px);opacity:0}to{transform:none;opacity:1}}
+.ov-x{
+  position:absolute;top:14px;right:14px;width:30px;height:30px;cursor:pointer;
+  background:none;border:none;color:var(--dim2);font-size:15px;line-height:1;
+}
+.ov-x:hover{color:var(--txt)}
+
+@media (min-width:520px){
+  .ov{align-items:center;padding:20px}
+  .ov-box{border-radius:22px}
+}
+
+/* 卡片 */
+.c-top{display:flex;align-items:center;gap:9px;margin-bottom:22px;font-size:12px;letter-spacing:.12em}
+.c-kind{color:var(--rose);font-weight:700}
+.c-kind.t-punish{color:#ff7a7a}
+.c-kind.t-duo{color:#c39bff}
+.c-kind.t-lucky{color:#6ee79a}
+.c-kind.t-reverse{color:#5cc8ff}
+.c-kind.t-cost{color:var(--gold)}
+.c-lvl{color:var(--dim2)}
+.c-who{margin-left:auto;color:var(--txt);font-weight:600;letter-spacing:0}
+
+.c-text{margin:0 0 26px;font-size:21px;line-height:1.75;font-weight:600;letter-spacing:.01em}
+.c-text em{font-style:normal;color:var(--rose);font-weight:700}
+
+.c-meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
+.c-meta span{font-size:12px;color:var(--dim);background:#241424;padding:6px 11px;border-radius:8px}
+.c-meta span.w{color:var(--gold)}
+
+.c-ans{margin-bottom:22px}
+.c-ans textarea{
+  width:100%;min-height:80px;padding:13px;border-radius:12px;resize:vertical;
+  background:#180d17;border:1px solid var(--line);color:var(--txt);
+  font:inherit;font-size:14.5px;line-height:1.6;outline:none;
+}
+.c-ans textarea:focus{border-color:var(--rose)}
+
+/* 三个次要动作，做成一行小字 */
+.c-sub{display:flex;justify-content:center;gap:4px;margin-top:16px}
+.c-sub button{
+  flex:1;padding:10px 4px;cursor:pointer;background:none;border:none;
+  color:var(--dim2);font:inherit;font-size:13px;transition:.16s;border-radius:9px;
+}
+.c-sub button:hover{color:var(--rose);background:#241424}
+
+/* ─────────── 菜单 ─────────── */
+.menu-list{display:grid;gap:2px}
+.menu-list button{
+  display:flex;align-items:center;gap:13px;width:100%;padding:15px 6px;cursor:pointer;
+  background:none;border:none;border-bottom:1px solid var(--line);
+  color:var(--txt);font:inherit;font-size:15.5px;text-align:left;transition:.16s;
+}
+.menu-list button:last-child{border-bottom:none}
+.menu-list button:hover{color:var(--rose)}
+.menu-list button em{font-style:normal;font-size:17px;width:22px;flex:none}
+.menu-list button s{text-decoration:none;margin-left:auto;color:var(--dim2);font-size:12.5px}
+
+/* 通用弹层文字 */
+.ov-h{margin:0 0 8px;font-size:19px;font-weight:700;letter-spacing:.04em}
+.ov-p{margin:0 0 22px;color:var(--dim);font-size:13.5px;line-height:1.75}
+.ov-p b{color:var(--txt)}
+
+.rule{margin:0 0 22px;padding:0;list-style:none}
+.rule li{padding:12px 0;border-bottom:1px solid var(--line);color:var(--dim);font-size:14px;line-height:1.7}
+.rule li:last-child{border-bottom:none}
+.rule b{color:var(--txt);font-weight:600}
+
+.props{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:22px}
+.props div{padding:11px 13px;border-radius:10px;background:#180d17;border:1px solid var(--line);font-size:13.5px;color:var(--dim)}
+.props div.need{background:#2a1226;border-color:var(--gold);color:var(--gold);font-weight:600}
+
+.tabs{display:flex;gap:6px;margin-bottom:18px}
+.tabs button{
+  flex:1;padding:10px;cursor:pointer;font:inherit;font-size:13px;border-radius:10px;
+  background:#180d17;border:1px solid var(--line);color:var(--dim);transition:.16s;
+}
+.tabs button.on{background:#2a1226;border-color:var(--rose);color:var(--txt);font-weight:600}
+
+.log{margin:0}
+.log div{padding:13px 0;border-bottom:1px solid var(--line);font-size:14px;line-height:1.65}
+.log div:last-child{border-bottom:none}
+.log small{display:block;color:var(--dim2);font-size:11.5px;margin-bottom:4px}
+.log .ans{margin-top:6px;color:var(--gold);font-size:13.5px}
+.empty{padding:36px 0;text-align:center;color:var(--dim2);font-size:13.5px;line-height:1.8}
+
+/* ─────────── 转盘 ─────────── */
+.wheel-wrap{position:relative;width:min(72vw,290px);margin:0 auto 20px;aspect-ratio:1}
+.wheel{
+  width:100%;height:100%;border-radius:50%;position:relative;overflow:hidden;
+  border:5px solid #2f1a2c;box-shadow:0 12px 34px rgba(0,0,0,.5);
+  transition:transform 4.2s cubic-bezier(.15,.85,.2,1);
+}
+.wheel span{
+  position:absolute;top:50%;left:50%;transform-origin:0 0;
+  font-size:11px;font-weight:600;white-space:nowrap;color:#fff;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);
+}
+.wheel-pin{position:absolute;top:-13px;left:50%;transform:translateX(-50%);font-size:20px;color:var(--rose)}
+.wheel-say{min-height:26px;margin:0 0 18px;text-align:center;font-size:16px;font-weight:700;color:var(--gold)}
+
+/* ─────────── 骰子 ─────────── */
+.dice{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.dice > div{padding:18px 10px;border-radius:14px;background:#180d17;border:1px solid var(--line);text-align:center}
+.dice h4{margin:0 0 10px;font-size:13px;font-weight:500;color:var(--dim)}
+.dice .face{font-size:46px;line-height:1;color:var(--txt)}
+.dice .pt{margin-top:8px;font-size:14px;font-weight:700;color:var(--gold)}
+.dice .roll .face{animation:roll .1s linear infinite}
+@keyframes roll{0%{transform:rotate(-10deg)}50%{transform:rotate(10deg) translateY(-3px)}100%{transform:rotate(-10deg)}}
+.dice .lose{border-color:var(--rose)}
+.dice .win{border-color:#3f7a4f}
+.dice-say{min-height:26px;margin:0 0 18px;text-align:center;font-size:16px;font-weight:700;color:var(--rose)}
+
+/* ─────────── 计时 ─────────── */
+.timer{position:fixed;inset:0;z-index:95;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:18px;background:rgba(8,3,7,.93)}
+.ring{position:relative;width:210px;height:210px}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:#241424;stroke-width:6}
+.ring-fg{fill:none;stroke:var(--rose);stroke-width:6;stroke-linecap:round;
+  stroke-dasharray:339.3;stroke-dashoffset:0;transition:stroke-dashoffset .95s linear}
+.timer-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:58px;font-weight:800;font-variant-numeric:tabular-nums}
+.timer-label{margin:0;color:var(--dim);font-size:14px;letter-spacing:.1em;text-align:center;padding:0 24px}
+.timer-row{display:flex;gap:10px}
+
+/* ─────────── toast / 飘心 ─────────── */
+.toast{
+  position:fixed;left:50%;bottom:40px;z-index:99;transform:translate(-50%,20px);
+  padding:12px 22px;border-radius:99px;background:var(--rose);color:#fff;
+  font-size:14px;font-weight:600;opacity:0;pointer-events:none;transition:.28s;white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.hearts{position:fixed;inset:0;z-index:60;pointer-events:none;overflow:hidden}
+.hearts span{position:absolute;bottom:-40px;animation:rise linear forwards;opacity:0}
+@keyframes rise{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:.9}100%{opacity:0;transform:translateY(-100vh) scale(1.1)}}
+
+@media (max-width:360px){
+  .tags,.props{grid-template-columns:1fr}
+  .c-text{font-size:19px}
+  .scores{gap:15px}
+}
