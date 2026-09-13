@@ -69,13 +69,15 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
   }
   check('连抽 4 张都正常（共 ' + (n + 1) + ' 张）', n === 4, '成功 ' + n);
 
-  console.log('\n── 老虎机（线上）──');
+  console.log('\n── 翻牌子（线上）──');
   $('#menu').click();
   check('菜单能开', await until(() => $('#ov-body [data-m="pick"]')));
   $('#ov-body [data-m="pick"]').click();
-  check('点菜里有「动作 × 部位」', await until(() => $('#ov-body [data-slot]')));
+  check('点菜里有「翻牌子」', await until(() => $('#ov-body [data-slot]') && $('#ov-body [data-slot]').textContent.includes('翻牌子')),
+    $('#ov-body [data-slot]') && $('#ov-body [data-slot]').textContent.trim());
   $('#ov-body [data-slot]').click();
-  check('老虎机界面渲染出来了', await until(() => $('#spin-act') && $('#spin-part')));
+  check('弹层标题是「翻牌子」', $('#ov-body .ov-h').textContent === '翻牌子', $('#ov-body .ov-h').textContent);
+  check('转轮界面渲染出来了', await until(() => $('#spin-act') && $('#spin-part')));
   $('#spin-act').click();
   await until(() => !$('#spin-act').disabled, 6000);
   const a1 = $('#reel-act span').textContent;
@@ -88,7 +90,7 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
     $('#slot-say').textContent);
   const heatLine = parseInt($('#heat-txt').textContent, 10);
   $('#slot-done').click(); await wait(400);
-  check('老虎机结果计入热度', parseInt($('#heat-txt').textContent, 10) === heatLine + 1, $('#heat-txt').textContent);
+  check('翻牌子结果计入热度', parseInt($('#heat-txt').textContent, 10) === heatLine + 1, $('#heat-txt').textContent);
 
   console.log('\n── 转盘 / 安全词 ──');
   $('#wheel').click();
