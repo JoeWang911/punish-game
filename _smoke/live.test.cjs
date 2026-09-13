@@ -98,36 +98,53 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
   check('🔥 线上也没混进别的等级', leaked.length === 0, leaked.slice(0, 3).join(' ; '));
 
   console.log('\n── 线上走完整流程 ──');
-  let done = 0;
-  for (let round = 0; round < 3; round++) {
+  // 把「一手」封成一个函数：转盘 → 盒子 → 做完。
+  // 中间会遇到三种岔路（翻牌子 / 反转 / 幸运），每一种都要能走完，
+  // 不能因为某一种没出现预期的界面就 break 掉整轮。
+  async function playTurn() {
     if (!$('#ov').classList.contains('hide')) { shut(); await wait(300); }
-    if ($('#reel-act')) { shut(); await wait(200); }
-    if (!$('#step-pick').classList.contains('hide')) {
-      $$('.box')[round % 3].click();
-    } else {
+    if ($('#reel-act')) { shut(); await wait(250); }
+    if ($('#step-pick').classList.contains('hide') && !$('#step-spin').classList.contains('hide')) {
       $('#spin-main').click();
-      if (!await until(() => TYPES.includes($('#mw-say').textContent) || ['反转！', '幸运！'].includes($('#mw-say').textContent), 9000)) break;
-      await wait(2400);
-      if ($('#reel-act')) {
-        $('#spin-act').click(); if (!await until(() => !$('#spin-act').disabled, 7000)) break;
-        $('#spin-part').click(); if (!await until(() => !$('#spin-part').disabled, 7000)) break;
-        const a = $('#reel-act span').textContent, p = $('#reel-part span').textContent;
-        check('转盘出「翻牌子」→ 轮子出了 ' + a + ' × ' + p, a !== '？？' && p !== '？？');
-        if ($('#slot-done') && !$('#slot-done').classList.contains('hide')) { $('#slot-done').click(); done++; }
-        await wait(500);
-        continue;
-      }
-      if (!await until(() => !$('#step-pick').classList.contains('hide'), 3000)) break;
-      const got = $('#mw-say').textContent;
-      if (got === '反转！' || got === '幸运！') { check('线上出现截胡：' + got, true); if ($('#done')) { $('#done').click(); await wait(600); } continue; }
-      check('转盘出「' + got + '」→ 盒子提示同一类型', $('#pick-type').textContent === got, $('#pick-type').textContent);
-      $$('.box')[round % 3].click();
+      if (!await until(() => TYPES.includes($('#mw-say').textContent)
+        || ['反转！', '幸运！'].includes($('#mw-say').textContent), 9000)) return false;
+      await wait(2500);
     }
-    if (!await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 6000)) break;
-    const kind = $('.c-kind').textContent;
-    check('抽出来的卡对得上（' + kind + '）', ['真心话', '大冒险', '惩罚', '一起做', '幸运'].includes(kind), kind);
-    if ($('#done')) { $('#done').click(); done++; }
-    await wait(500);
+    // 岔路 1：翻牌子
+    if ($('#reel-act')) {
+      $('#spin-act').click(); if (!await until(() => !$('#spin-act').disabled, 7000)) return false;
+      $('#spin-part').click(); if (!await until(() => !$('#spin-part').disabled, 7000)) return false;
+      const a = $('#reel-act span').textContent, p = $('#reel-part span').textContent;
+      check('翻牌子转出 ' + a + ' × ' + p, a !== '？？' && p !== '？？');
+      if ($('#slot-done') && !$('#slot-done').classList.contains('hide')) $('#slot-done').click();
+      await wait(500);
+      return true;
+    }
+    // 岔路 2：幸运（这轮直接跳过，没有盒子）
+    if (!$('#ov').classList.contains('hide') && $('.c-kind') && $('.c-kind').textContent === '幸运') {
+      check('线上出现幸运跳过', true);
+      $('#done').click(); await wait(500);
+      return true;
+    }
+    // 正常一手（反转也会走到这儿，只是受罚方换了人）
+    if (await until(() => !$('#step-pick').classList.contains('hide'), 4000)) {
+      const got = $('#mw-say').textContent;
+      if (TYPES.includes(got)) {
+        check('转盘出「' + got + '」→ 盒子提示同一类型', $('#pick-type').textContent === got, $('#pick-type').textContent);
+      }
+      $$('.box')[0].click();
+      if (!await until(() => $('.c-text') && !$('#ov').classList.contains('hide'), 6000)) return false;
+      const kind = $('.c-kind').textContent;
+      check('抽出来的卡对得上（' + kind + '）', ['真心话', '大冒险', '惩罚', '一起做', '幸运'].includes(kind), kind);
+      if ($('#done')) { $('#done').click(); await wait(500); }
+      return true;
+    }
+    return false;
+  }
+
+  let done = 0;
+  for (let round = 0; round < 4 && done < 3; round++) {
+    if (await playTurn()) done++;
   }
   check('线上完整打完 ' + done + ' 手', done >= 3, '只完成 ' + done);
 
