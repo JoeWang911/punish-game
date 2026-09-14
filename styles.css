@@ -42,6 +42,10 @@
   /* 缓动 */
   --ease:cubic-bezier(.22,1,.36,1);
   --ease-back:cubic-bezier(.34,1.4,.5,1);
+  /* 转盘专用的时长和曲线。音效在 JS 里按这两个值算「转了几格」，
+     所以两边永远是同一条曲线、同一个时长，改这里就够了 */
+  --spin-dur:4s;
+  --spin-ease:cubic-bezier(.22,1,.36,1);
 
   /* 面 */
   --surf:linear-gradient(165deg,rgba(255,255,255,.055),rgba(255,255,255,.012));
@@ -291,7 +295,7 @@ input[type=text]:focus,input[type=password]:focus{
     0 0 0 1px rgba(232,189,124,.55),
     0 0 0 9px rgba(0,0,0,.34),
     0 20px 46px -16px rgba(0,0,0,.95);
-  transition:transform 4s var(--ease);
+  transition:transform var(--spin-dur) var(--spin-ease);
 }
 .mw::after{
   content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;
@@ -302,6 +306,16 @@ input[type=text]:focus,input[type=password]:focus{
   font-size:12.5px;font-weight:800;white-space:nowrap;color:#fff;
   letter-spacing:.04em;
   text-shadow:0 2px 6px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.8);
+}
+/* 文字永远朝上：外层 span 负责把字摆到扇区中线上（跟着转盘转），
+   内层 b 反向转掉「扇区角 + 转盘角」，剩下的永远是 0°。
+   走同一条缓动、同一个时长，所以转动过程中字也是一直平的，不会甩歪。
+   b 必须是 block —— inline 元素上的 transform 浏览器直接忽略。 */
+.mw-lb b{
+  display:block;
+  transform-origin:50% 50%;
+  transition:transform var(--spin-dur) var(--spin-ease);
+  will-change:transform;
 }
 .mw-pin{
   position:absolute;top:-17px;left:50%;transform:translateX(-50%);
@@ -467,48 +481,66 @@ input[type=text]:focus,input[type=password]:focus{
   100%{opacity:0;transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) scale(1.35)}
 }
 
-/* ─────────── 滑动选择 ─────────── */
-.sw-row{display:flex;align-items:center;gap:8px;margin-bottom:14px}
-.sw-row .swipe{flex:1;min-width:0;margin-bottom:0;padding-bottom:8px}
-.sw-arrow{
-  flex:none;width:38px;height:38px;cursor:pointer;border-radius:50%;
+/* ─────────── 滚轮选择（就是手机定闹钟选时间那种） ─────────── */
+.drum-row{margin-bottom:18px}
+.drum-row .spec-h{margin:0 0 9px}
+.drum-wrap{display:flex;align-items:center;gap:10px}
+
+.drum{
+  position:relative;flex:1;min-width:0;height:198px;overflow:hidden;
+  border-radius:16px;
+  background:rgba(0,0,0,.34);
+  border:1px solid var(--line);
+  box-shadow:inset 0 16px 24px -16px #000, inset 0 -16px 24px -16px #000;
+  cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.drum.dragging{cursor:grabbing}
+
+/* 中间那条选中带：卡在正中央，白框 + 玫红辉光，永远只有一条 */
+.drum-band{
+  position:absolute;left:5px;right:5px;top:50%;height:44px;margin-top:-22px;z-index:0;
+  border-radius:12px;pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,77,126,.18),rgba(255,77,126,.05));
+  border:1px solid rgba(255,255,255,.55);
+  box-shadow:0 0 0 1px rgba(255,77,126,.4), 0 8px 22px -10px rgba(255,77,126,.8);
+}
+
+/* 滚轮本体：上下两头渐隐，做出圆柱面转过去的感觉 */
+.drum-reel{
+  position:absolute;left:0;right:0;top:0;z-index:1;perspective:700px;
+  will-change:transform;
+  mask-image:linear-gradient(180deg,rgba(0,0,0,0),#000 30%,#000 70%,rgba(0,0,0,0));
+  -webkit-mask-image:linear-gradient(180deg,rgba(0,0,0,0),#000 30%,#000 70%,rgba(0,0,0,0));
+}
+
+/* 每一格：又快又静。放大、倾斜、透明度都由 JS 每帧写，所以这里不写 transition */
+.drum-it{
+  position:absolute;left:0;right:0;height:44px;width:100%;
+  display:flex;align-items:center;justify-content:center;
+  padding:0 10px;background:none;border:0;font:inherit;cursor:pointer;
+  font-size:14px;font-weight:500;color:var(--txt-3);letter-spacing:.02em;
+  white-space:nowrap;overflow:hidden;
+  will-change:transform,opacity;backface-visibility:hidden;
+}
+/* 正中间那一格：加粗、放大、变白、带玫红发光 */
+.drum-it.sel{
+  color:#fff;font-weight:800;font-size:16.5px;letter-spacing:.04em;
+  text-shadow:0 0 18px rgba(255,77,126,.8), 0 1px 0 rgba(0,0,0,.65);
+}
+
+.drum-btns{flex:none;display:flex;flex-direction:column;gap:9px}
+.drum-arrow{
+  width:42px;height:42px;padding:0;cursor:pointer;border-radius:13px;
   background:var(--surf);border:1px solid var(--line);color:var(--txt-2);
-  font-size:13px;line-height:1;box-shadow:var(--edge);
+  font-size:11px;line-height:1;box-shadow:var(--edge);
   transition:.18s var(--ease);
 }
-.sw-arrow:hover:not(:disabled){
+.drum-arrow:hover{
   color:#fff;border-color:var(--rose);
   background:linear-gradient(180deg,rgba(255,77,126,.32),rgba(201,32,90,.32));
 }
-.sw-arrow:active:not(:disabled){transform:scale(.9)}
-.sw-arrow:disabled{opacity:.22;cursor:not-allowed}
-
-.swipe{
-  display:flex;gap:9px;overflow-x:auto;scroll-snap-type:x mandatory;
-  padding:4px 2px 8px;
-  scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;
-  scroll-behavior:smooth;
-  mask-image:linear-gradient(90deg,transparent,#000 16px,#000 calc(100% - 16px),transparent);
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 16px,#000 calc(100% - 16px),transparent);
-}
-.swipe::-webkit-scrollbar{display:none}
-/* 未选：灰色、小一号、压暗 */
-.swipe button{
-  flex:0 0 auto;scroll-snap-align:center;cursor:pointer;font:inherit;
-  font-size:13.5px;font-weight:500;padding:11px 18px;border-radius:99px;
-  background:rgba(0,0,0,.28);border:1px solid var(--line);color:var(--txt-3);
-  white-space:nowrap;transform:scale(.94);
-  transition:transform .22s var(--ease), background .22s var(--ease),
-             color .22s var(--ease), box-shadow .22s var(--ease), font-size .22s var(--ease);
-}
-.swipe button:hover{color:var(--txt-2);border-color:var(--line-2)}
-/* 选中：加粗、加大、白底黑字，对比拉满 */
-.swipe button.on{
-  background:linear-gradient(180deg,#fff,#ffe3ec);
-  border-color:#fff;color:#17070f;font-weight:800;font-size:15.5px;
-  padding:13px 22px;transform:scale(1.06);
-  box-shadow:0 10px 26px -8px rgba(255,255,255,.45), 0 0 0 3px rgba(255,77,126,.3);
-}
+.drum-arrow:active{transform:scale(.9)}
 
 /* ─────────── 弹层 ─────────── */
 .ov{

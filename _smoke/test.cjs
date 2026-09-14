@@ -51,10 +51,13 @@ function check(name, cond, extra) {
   else { fail++; console.log('  ❌ ' + name + (extra ? '  → ' + extra : '')); }
 }
 
-async function boot(base, seed) {
+async function boot(base, seed, setup) {
   const dom = await JSDOM.fromURL(base + '/index.html', {
     runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc,
-    beforeParse(w) { if (seed) w.localStorage.setItem('punish-game-v1', JSON.stringify(seed)); }
+    beforeParse(w) {
+      if (seed) w.localStorage.setItem('punish-game-v1', JSON.stringify(seed));
+      if (setup) setup(w);
+    }
   });
   const w = dom.window;
   w.scrollTo = () => {};
@@ -62,6 +65,34 @@ async function boot(base, seed) {
   await new Promise(r => w.addEventListener('load', r));
   await wait(180);
   return dom;
+}
+
+/* 假音频：把每一次 beep 记下来（时间 + 音高 + 波形），
+   这样能真的验证「音效先密后疏、先高后低」，而不是只看代码里写了什么。 */
+function fakeAudio(w) {
+  w.__osc = [];
+  function FakeCtx() {
+    this.currentTime = 0;
+    this.destination = {};
+    this.createOscillator = function () {
+      var o = {
+        type: 'sine',
+        frequency: { value: 0 },
+        connect: function () {},
+        stop: function () {},
+        start: function () { w.__osc.push({ at: Date.now(), f: o.frequency.value, type: o.type }); }
+      };
+      return o;
+    };
+    this.createGain = function () {
+      return {
+        gain: { setValueAtTime: function () {}, exponentialRampToValueAtTime: function () {} },
+        connect: function () {}
+      };
+    };
+  }
+  w.AudioContext = FakeCtx;
+  w.webkitAudioContext = FakeCtx;
 }
 
 (async function main() {
@@ -114,12 +145,22 @@ async function boot(base, seed) {
   const names = $$('#mw span').map(s => s.textContent);
   check('扇区就是那 5 类', ['真心话', '大冒险', '惩罚', '一起做', '翻牌子'].every(n => names.includes(n)), names.join('/'));
   const TYPES = ['真心话', '大冒险', '惩罚', '一起做', '翻牌子'];
+  /* 转盘落定之后还有 4% 反转 / 4% 幸运会把结果截胡，而这两条已经在第 20 节单独验过了。
+     这一节要验的是正常流程，所以先把这两个概率按住（顺带让扇区也定下来）：
+     spinMain 里第 1 次 Math.random 用来挑扇区、第 2 次才是抽截胡。 */
+  const realRandom = win.Math.random;
+  let nRand = 0;
+  win.Math.random = function () { nRand++; return nRand === 1 ? 0.5 : 0.99; };
   $('#spin-main').click();
   check('转的时候按钮禁用', $('#spin-main').disabled === true);
   const spinned = await until(() => TYPES.includes($('#mw-say').textContent), 9000);
   check('转完了出结果', spinned, $('#mw-say').textContent);
+  // 再等一会儿，确认没有被截胡（截胡会在落定后 700ms 改字）
+  await wait(1200);
   const landed = $('#mw-say').textContent;
-  check('结果是 5 类之一', ['真心话', '大冒险', '惩罚', '一起做', '翻牌子'].includes(landed), landed);
+  check('这一把抽到了第 3 个扇区（惩罚）', landed === '惩罚', landed);
+  check('这一把没有被反转 / 幸运截胡', !['反转！', '幸运！'].includes(landed), landed);
+  win.Math.random = realRandom;
 
   console.log('\n── 5 · 第二步：按类型抽盲盒 ──');
   if (landed === '翻牌子') {
@@ -533,7 +574,7 @@ async function boot(base, seed) {
   check('终极仍在待用状态', JSON.parse(w6.localStorage.getItem('punish-game-v1')).ultPending[0] === true);
   dom6.window.close();
 
-  console.log('\n── 19 · 终极里的翻牌子：滑动选择 ──');
+  console.log('\n── 19 · 终极里的翻牌子：滚轮选择 ──');
   const ultSeed2 = JSON.parse(JSON.stringify(ultSeed));
   const dom5 = await boot(base, ultSeed2);
   const w5 = dom5.window, d5 = w5.document;
@@ -544,27 +585,73 @@ async function boot(base, seed) {
   $5('#ult-go').click(); await wait(350);
   await until(() => $5('#ult-body [data-u="slot"]'), 2500);
   $5('#ult-body [data-u="slot"]').click(); await wait(350);
-  check('动作和部位都是滑动条', !!$5('#sw-act') && !!$5('#sw-part'));
-  check('滑动条里是按钮不是输入框', $$5('#sw-act button').length > 0 && $$5('#sw-part button').length > 0,
-    '动作 ' + $$5('#sw-act button').length + ' / 部位 ' + $$5('#sw-part button').length);
-  check('滑动条有 scroll-snap 类名（可滑动选择）', $5('#sw-act').className.includes('swipe'));
-  check('每排都有左右箭头（鼠标也能用）', $$5('#ult-body .sw-arrow').length === 4, '实际 ' + $$5('#ult-body .sw-arrow').length);
-  check('左右箭头各两个', $$5('#ult-body .sw-arrow[data-dir="-1"]').length === 2 && $$5('#ult-body .sw-arrow[data-dir="1"]').length === 2);
-  check('箭头能对应到滑动条', $$5('#ult-body .sw-arrow[data-for="sw-act"]').length === 2 && $$5('#ult-body .sw-arrow[data-for="sw-part"]').length === 2);
-  $$5('#ult-body .sw-arrow[data-dir="1"]')[0].click(); await wait(300);
-  check('点右箭头不会崩，滑动条还在', !!$5('#sw-act') && $$5('#sw-act button').length > 0);
-  $$5('#ult-body .sw-arrow[data-dir="-1"]')[0].click(); await wait(300);
-  check('点左箭头也不会崩', !!$5('#sw-act'));
-  check('没选之前「确定」禁用', $5('#u-go').disabled === true);
-  check('选项只来自当前档（Lv3）', $$5('#sw-act button').every(b => w5.SLOT.act.some(x => x.x === b.textContent && x.lv === 3)),
-    $$5('#sw-act button').map(b => b.textContent).join('/'));
-  $$5('#sw-act button')[2].click(); await wait(200);
-  check('选了一个动作还是禁用', $5('#u-go').disabled === true);
-  $$5('#sw-part button')[1].click(); await wait(200);
-  check('两个都选了才可用', $5('#u-go').disabled === false);
-  check('选中的项有高亮', $$5('#sw-act button.on').length === 1 && $$5('#sw-part button.on').length === 1);
-  const pickAct = $$5('#sw-act button')[2].textContent, pickPart = $$5('#sw-part button')[1].textContent;
+  check('动作和部位都是滚轮', !!$5('#drum-act') && !!$5('#drum-part'));
+  check('滚轮里是选项按钮不是输入框', $$5('#drum-act button').length > 0 && $$5('#drum-part button').length > 0,
+    '动作 ' + $$5('#drum-act button').length + ' / 部位 ' + $$5('#drum-part button').length);
+  check('滚轮带 drum 类名（可拖动 + 有中间选中带）', $5('#drum-act').className.includes('drum'));
+  check('每个滚轮中间都画了选中带', $$5('#ult-body .drum-band').length === 2);
+  check('每个滚轮有上下两个箭头（鼠标也能用）', $$5('#ult-body .drum-arrow').length === 4,
+    '实际 ' + $$5('#ult-body .drum-arrow').length);
+  check('上下箭头各两个', $$5('#ult-body .drum-arrow[data-dir="-1"]').length === 2 && $$5('#ult-body .drum-arrow[data-dir="1"]').length === 2);
+  check('箭头能对应到滚轮', $$5('#ult-body .drum-arrow[data-for="drum-act"]').length === 2 && $$5('#ult-body .drum-arrow[data-for="drum-part"]').length === 2);
+  check('一打开就选中第一格（中间不会是空的）', $$5('#drum-act button.sel').length === 1 && $$5('#drum-act button')[0].classList.contains('sel'));
+  check('选项只来自当前档（Lv3）', $$5('#drum-act button').every(b => w5.SLOT.act.some(x => x.x === b.textContent && x.lv === 3)),
+    $$5('#drum-act button').map(b => b.textContent).join('/'));
+  $$5('#ult-body .drum-arrow[data-dir="1"]')[0].click(); await wait(400);
+  check('点下箭头换到第二格，滚轮没崩', !!$5('#drum-act') && $$5('#drum-act button')[1].classList.contains('sel'),
+    '选中的是第 ' + $$5('#drum-act button').findIndex(b => b.classList.contains('sel')) + ' 格');
+  $$5('#ult-body .drum-arrow[data-dir="-1"]')[0].click(); await wait(400);
+  check('点上箭头转回第一格', $$5('#drum-act button')[0].classList.contains('sel'));
+  check('滚轮选中的项永远只有一格高亮', $$5('#drum-act button.sel').length === 1 && $$5('#drum-part button.sel').length === 1);
+  $$5('#drum-act button')[2].click(); await wait(400);
+  $$5('#drum-part button')[1].click(); await wait(400);
+  check('点某一条能直接落到中间', $$5('#drum-act button')[2].classList.contains('sel') && $$5('#drum-part button')[1].classList.contains('sel'));
+  check('确定按钮一直可用（滚轮永远有一格在中间）', $5('#u-go').disabled === false);
+  const pickAct = $$5('#drum-act button')[2].textContent, pickPart = $$5('#drum-part button')[1].textContent;
   check('按钮上预览了结果', $5('#u-go').textContent.includes(pickAct) && $5('#u-go').textContent.includes(pickPart), $5('#u-go').textContent);
+
+  // ── 真的按住拖一把。速度的符号写反过一次，一松手会往后甩回第一格，
+  //    所以这里必须验「往上拖之后停在更后面」，不能只验「没崩」。
+  function selIdx() { return $$5('#drum-act button').findIndex(b => b.classList.contains('sel')); }
+  function drag(steps, dy) {
+    const box = $5('#drum-act');
+    box.dispatchEvent(new w5.MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 100, clientY: 400, button: 0 }));
+    const dragging = box.classList.contains('dragging');
+    return (async () => {
+      for (let i = 1; i <= steps; i++) {
+        d5.dispatchEvent(new w5.MouseEvent('mousemove', {
+          bubbles: true, cancelable: true, clientX: 100, clientY: 400 + dy * i, button: 0
+        }));
+        await wait(16);
+      }
+      const during = selIdx();
+      d5.dispatchEvent(new w5.MouseEvent('mouseup', {
+        bubbles: true, cancelable: true, clientX: 100, clientY: 400 + dy * steps, button: 0
+      }));
+      await wait(900);
+      return { dragging, during, after: selIdx() };
+    })();
+  }
+
+  // 先回到第一格，方便数数
+  $$5('#drum-act button')[0].click(); await wait(500);
+  const up = await drag(8, -16);          // 手指往上划 = 看后面的
+  check('按下去就进入拖动状态', up.dragging === true);
+  check('往上拖的时候滚轮跟着走（到第 ' + up.during + ' 格）', up.during > 0);
+  check('松手之后停在更后面，不会往回甩（0 → ' + up.after + '）', up.after >= up.during && up.after > 0,
+    '拖到 ' + up.during + '，松手后 ' + up.after);
+
+  $$5('#drum-act button')[0].click(); await wait(500);
+  const dn = await drag(6, 16);           // 往下划 = 看前面的，已经在第 0 格，只能被弹回来
+  check('往下拖到头的橡皮筋不会失控（停在第 ' + dn.after + ' 格）', dn.after === 0, '实际 ' + dn.after);
+  check('拖完选中项还是只有一格', $$5('#drum-act button.sel').length === 1);
+  check('拖完滚轮还在，没被拖坏', $$5('#drum-act button').length > 0);
+
+  // 拖完把选择拨回上面记下的那两格，后面的流程才对得上
+  $$5('#drum-act button')[2].click(); await wait(400);
+  $$5('#drum-part button')[1].click(); await wait(400);
+  check('拖完之后还能精确选回指定的两格',
+    $$5('#drum-act button')[2].classList.contains('sel') && $$5('#drum-part button')[1].classList.contains('sel'));
   $5('#u-go').click();
   await until(() => $5('.c-text'), 3000);
   const finalTxt = $5('.c-text') ? $5('.c-text').textContent : '(没有卡片)';
@@ -929,6 +1016,135 @@ async function boot(base, seed) {
       !$D('#step-spin').classList.contains('hide') || !$D('#step-ult').classList.contains('hide'));
   }
   domD.window.close();
+
+  console.log('\n── 26 · 转盘：字永远朝上 + 音效跟着转盘一起减速 ──');
+  const spinSeed = JSON.parse(JSON.stringify(ultSeed));
+  spinSeed.armed = [0, 0];
+  spinSeed.ultPending = [false, false];
+  const domE = await boot(base, spinSeed, fakeAudio);
+  const wE = domE.window, dE = wE.document;
+  const $E = s => dE.querySelector(s);
+  const $$E = s => Array.from(dE.querySelectorAll(s));
+  await wait(300);
+  $E('#btn-resume').click(); await wait(400);
+  check('一进游戏就停在转盘那一步', !$E('#step-spin').classList.contains('hide'));
+
+  // 把「转盘自己转的角度 + 每个扇区的中线角 + 文字自己的反向角」加起来，
+  // 只要恒等于 0°，文字在屏幕坐标系里就一定是水平的。
+  function labelSums() {
+    const wm = /rotate\((-?[\d.]+)deg\)/.exec($E('#mw').style.transform || 'rotate(0deg)');
+    const rs = wm ? parseFloat(wm[1]) : 0;
+    return $$E('#mw .mw-lb').map(lb => {
+      const om = /rotate\((-?[\d.]+)deg\)/.exec(lb.style.transform || '');
+      const b = lb.querySelector('b');
+      const im = b ? /rotate\((-?[\d.]+)deg\)/.exec(b.style.transform || '') : null;
+      const norm = x => ((x % 360) + 360) % 360;
+      return {
+        text: b ? b.textContent : '',
+        mid: parseFloat(lb.dataset.mid),
+        // 归一化到 [-0.5, 0.5] 再看离 0° 多远
+        off: Math.min(norm(rs + (om ? parseFloat(om[1]) : 0) + (im ? parseFloat(im[1]) : 0)),
+                    360 - norm(rs + (om ? parseFloat(om[1]) : 0) + (im ? parseFloat(im[1]) : 0)))
+      };
+    });
+  }
+
+  check('每个扇区都有自己的文字节点', $$E('#mw .mw-lb').length === 5, '实际 ' + $$E('#mw .mw-lb').length);
+  check('文字是包在内层 <b> 里的（那样才能单独反向转）',
+    $$E('#mw .mw-lb').every(lb => lb.querySelector('b') && lb.querySelector('b').textContent.length > 0));
+  check('每个文字节点都记着自己扇区的中线角',
+    $$E('#mw .mw-lb').every(lb => /^-?[\d.]+$/.test(lb.dataset.mid || '')));
+  const lblBefore = labelSums();
+  check('停下没转的时候文字是正的', lblBefore.every(x => x.off < 0.6),
+    lblBefore.map(x => x.text + '=' + x.off.toFixed(1) + '°').join(' '));
+  check('外层的 mid 角各不相同（说明真的按扇区分开了）',
+    new Set(lblBefore.map(x => Math.round(x.mid))).size === lblBefore.length);
+
+  const tickAt0 = wE.__osc.length;
+  $E('#spin-main').click();
+  const okSpinE = await until(() => TYPES.includes($E('#mw-say').textContent) || ['反转！', '幸运！'].includes($E('#mw-say').textContent), 9000);
+  check('转完了出结果', okSpinE, $E('#mw-say').textContent);
+  const spunDeg = /rotate\((-?[\d.]+)deg\)/.exec($E('#mw').style.transform);
+  check('转盘真的转过好几圈（' + (spunDeg ? parseFloat(spunDeg[1]).toFixed(0) : '?') + '°）',
+    !!spunDeg && Math.abs(parseFloat(spunDeg[1])) >= 1080);
+
+  const lblAfter = labelSums();
+  check('转完之后文字依然是正的（不是倒的 / 斜的）', lblAfter.every(x => x.off < 0.6),
+    lblAfter.map(x => x.text + '=' + x.off.toFixed(1) + '°').join(' '));
+  check('转完之后每个扇区的字还是各就各位',
+    lblAfter.map(x => x.text).join('/') === lblBefore.map(x => x.text).join('/'));
+
+  // ── 音效：把这一次转动里所有的「扇区哒哒声」拿出来 ──
+  const ticks = wE.__osc.slice(tickAt0).filter(o => o.type === 'square');
+  check('转的时候每个扇区都响了一记（' + ticks.length + ' 记）', ticks.length >= 8, '只有 ' + ticks.length + ' 记');
+  if (ticks.length >= 8) {
+    const gaps = [];
+    for (let i = 1; i < ticks.length; i++) gaps.push(ticks[i].at - ticks[i - 1].at);
+    const f0 = ticks[0].f, fl = ticks[ticks.length - 1].f;
+    check('开头响得很密（第一格 ' + gaps[0] + 'ms）', gaps[0] <= 130, '第一格 ' + gaps[0] + 'ms');
+    check('越到后面越稀（最后一格 ' + gaps[gaps.length - 1] + 'ms）', gaps[gaps.length - 1] >= 260,
+      '最后一格 ' + gaps[gaps.length - 1] + 'ms');
+    check('间隔是越来越大，不是匀速（' + gaps[0] + 'ms → ' + gaps[gaps.length - 1] + 'ms）',
+      gaps[gaps.length - 1] > gaps[0] * 3,
+      '首 ' + gaps[0] + ' 尾 ' + gaps[gaps.length - 1]);
+    // 每记之间隔多久。这个值会被「一帧 16ms」量化，所以不看单步、只看整体趋势。
+    const q = Math.max(1, Math.floor(gaps.length / 4));
+    const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+    const head = avg(gaps.slice(0, q)), tail = avg(gaps.slice(gaps.length - q));
+    check('开头四分之一平均 ' + head.toFixed(0) + 'ms，结尾四分之一平均 ' + tail.toFixed(0) + 'ms —— 明显越来越慢',
+      tail > head * 3, head.toFixed(0) + 'ms → ' + tail.toFixed(0) + 'ms');
+    // 只允许「突然又加快一大截」出现极少数几次（时间戳取整的抖动）
+    let rush = 0;
+    for (let i = 1; i < gaps.length; i++) if (gaps[i] < gaps[i - 1] * 0.4) rush++;
+    check('没有突然又猛地加速的地方（只有 ' + rush + ' 处）', rush <= 1, rush + ' 处');
+    check('音高从高到低（' + Math.round(f0) + 'Hz → ' + Math.round(fl) + 'Hz）', f0 >= 900 && fl <= 1000 && f0 > fl + 200,
+      Math.round(f0) + ' → ' + Math.round(fl));
+    // 音高直接跟转速挂钩，转速一路降，音高就该一路降（只允许舍入级别的回升）
+    let fbad = 0;
+    for (let i = 1; i < ticks.length; i++) if (ticks[i].f > ticks[i - 1].f + 1) fbad++;
+    check('音高一路往下降，不是来回跳（回升的只有 ' + fbad + ' 处）', fbad <= 1, fbad + ' 处回升');
+    check('停下来之后不再继续响（没有卡在匀速的定时器里）', wE.__osc.slice(tickAt0).filter(o => o.type === 'square').length === ticks.length);
+  }
+  const spinSrc = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
+  check('已经删掉了那条「每 105ms 恒定响一次」的定时器', !/setInterval\(function \(\) \{ beep\(1200/.test(spinSrc));
+  check('音效跟着 requestAnimationFrame 一帧一帧算', /raf\(frame\)/.test(spinSrc) && /function frame\(now\)/.test(spinSrc));
+  check('时长和曲线是从 CSS 变量读的，不会和转盘走岔',
+    /cssMs\('--spin-dur'/.test(spinSrc) && /cssNums\('--spin-ease'/.test(spinSrc));
+  domE.window.close();
+
+  console.log('\n── 27 · 弹层被顶掉时，还在跑的定时器不能崩 ──');
+  // 掷骰子 / 掷骰卡 / 倒计时都是一串 setInterval + setTimeout。
+  // 这中间要是有别的弹层插进来（升级询问、认输、点等级按钮），
+  // 旧面板就被换掉了，那串定时器再往 null 上写 textContent 就会抛错。
+  const dashSeed = JSON.parse(JSON.stringify(ultSeed));
+  dashSeed.armed = [0, 0];
+  dashSeed.ultPending = [false, false];
+  const domF = await boot(base, dashSeed);
+  const wF = domF.window, dF = wF.document;
+  const $F = s => dF.querySelector(s);
+  await wait(300);
+  $F('#btn-resume').click(); await wait(500);
+  const errAt27 = errors.length;
+
+  check('游戏页上有「谁受罚」骰子', !!$F('#dice') && $F('#dice').textContent.includes('谁受罚'));
+  $F('#dice').click();
+  check('骰子面板开出来了', await until(() => $F('#roll'), 2500));
+  $F('#roll').click();
+  await wait(150);                       // 让那串定时器先跑起来
+  check('掷骰面板正在动（还没出结果）', $F('#p0') && !/\d/.test($F('#p0').textContent), $F('#p0') && $F('#p0').textContent);
+  $F('#lv-chip').click();                // 面板被等级面板顶掉
+  await wait(400);
+  check('弹层确实被顶掉了（骰子面板不在了）', !$F('#roll'));
+  await wait(2200);                      // 等骰子那串 setTimeout 全部烧完
+  check('骰子定时器烧完之后没有报错', errors.length === errAt27, errors.slice(errAt27).join(' | '));
+
+  // 同一招再试倒计时：计时器面板被顶掉
+  shut(); await wait(200);
+  if ($F('#step-pick').classList.contains('hide')) { $F('#spin-main').click(); await wait(5200); }
+  const errAt27b = errors.length;
+  $F('#lv-chip').click(); await wait(300);
+  check('清空弹层之后也没有残留报错', errors.length === errAt27b, errors.slice(errAt27b).join(' | '));
+  domF.window.close();
 
   console.log('\n════════════════════════');
   console.log('  通过 ' + pass + '，失败 ' + fail);

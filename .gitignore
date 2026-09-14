@@ -1,4 +1,5 @@
 _smoke/node_modules/
 _smoke/package-lock.json
+_smoke/shots/
 .DS_Store
 Thumbs.db

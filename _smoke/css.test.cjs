@@ -70,10 +70,11 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
   const must = [
     ['.screen', /\.screen/], ['.btn.primary', /\.btn\.primary/], ['.box', /\.box/],
     ['.mw', /\.mw/], ['.ult-word', /\.ult-word/], ['.b-box', /\.b-box/], ['.b-lid', /\.b-lid/],
-    ['.swipe', /\.swipe/], ['.c-text', /\.c-text/], ['.c-kind', /\.c-kind/], ['.who-pick', /\.who-pick/],
+    ['.drum', /\.drum/], ['.c-text', /\.c-text/], ['.c-kind', /\.c-kind/], ['.who-pick', /\.who-pick/],
     ['.reel', /\.reel/], ['.dice', /\.dice/], ['.timer', /\.timer/], ['.toast', /\.toast/],
     ['.tags', /\.tags/], ['.rule', /\.rule/], ['.sum-row', /\.sum-row/], ['.menu-list', /\.menu-list/],
-    ['.swipe button.on', /\.swipe button\.on/], ['.box.open', /\.box\.open/],
+    ['.drum-it.sel', /\.drum-it\.sel/], ['.box.open', /\.box\.open/],
+    ['.drum-band', /\.drum-band/], ['.drum-arrow', /\.drum-arrow/], ['.drum-reel', /\.drum-reel/],
     ['.b-box.open .b-lid', /\.b-box\.open \.b-lid/], ['.hide', /\.hide/], ['.on', /\.on/]
   ];
   const missSel = must.filter(([, re]) => !re.test(sel)).map(([n]) => n);
@@ -88,6 +89,36 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
   // 每个 var() 都该有兜底，或者变量确实定义了——这里查关键色板
   const palette = ['--ink-0', '--ink-2', '--txt', '--txt-2', '--txt-3', '--rose', '--gold', '--line', '--ease'];
   check('色板变量齐全', palette.every(p => defined.has(p)), palette.filter(p => !defined.has(p)).join(', '));
+
+  // 转盘的时长 / 曲线必须是变量，JS 靠读它来配音效，写死就会两边走岔
+  console.log('\n── 转盘：文字朝上 + 音效同步 ──');
+  check('转盘时长和曲线是 CSS 变量', defined.has('--spin-dur') && defined.has('--spin-ease'));
+  const spinEase = /--spin-ease:\s*(cubic-bezier\(([^)]+)\)|[\w-]+)/.exec(cssText);
+  check('--spin-ease 是一条四个数的 cubic-bezier',
+    !!spinEase && (spinEase[2] ? spinEase[2].split(',').length === 4 : true),
+    spinEase ? spinEase[1] : '(没找到)');
+  const durNums = /--spin-dur:\s*(-?[\d.]+)\s*(ms|s)\b/.exec(cssText);
+  check('--spin-dur 带单位（JS 才解析得出毫秒）', !!durNums, durNums ? durNums[0] : '(没找到)');
+  const mwRule = rules.find(r => r.selectorText === '.mw');
+  check('.mw 的 transition 用的是那两个变量',
+    !!mwRule && /var\(--spin-dur\)/.test(mwRule.style.transition) && /var\(--spin-ease\)/.test(mwRule.style.transition),
+    mwRule ? mwRule.style.transition : '(没找到 .mw)');
+  const lbRule = rules.find(r => r.selectorText === '.mw-lb b');
+  check('内层 b 是 block（inline 元素上 transform 会被忽略）',
+    !!lbRule && lbRule.style.display === 'block', lbRule ? lbRule.style.display : '(没找到 .mw-lb b)');
+  check('内层 b 走同一条缓动、同一个时长',
+    !!lbRule && /var\(--spin-dur\)/.test(lbRule.style.transition) && /var\(--spin-ease\)/.test(lbRule.style.transition),
+    lbRule ? lbRule.style.transition : '(没找到)');
+  check('内层 b 绕自己中心转（不受字数影响）',
+    !!lbRule && lbRule.style.transformOrigin === '50% 50%',
+    lbRule ? lbRule.style.transformOrigin : '(没找到)');
+
+  // 滚轮：中间选中带要压在字下面，字才不会被辉光糊掉
+  const bandRule = rules.find(r => r.selectorText === '.drum-band');
+  const reelRule = rules.find(r => r.selectorText === '.drum-reel');
+  check('滚轮选中带比字层级低（不会被辉光糊住）',
+    !!bandRule && !!reelRule && Number(bandRule.style.zIndex) < Number(reelRule.style.zIndex),
+    (bandRule && bandRule.style.zIndex) + ' vs ' + (reelRule && reelRule.style.zIndex));
 
   console.log('\n── 资源 ──');
   check('没有加载失败的资源', errors.filter(e => !/favicon/i.test(e)).length === 0,

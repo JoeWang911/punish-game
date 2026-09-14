@@ -374,6 +374,19 @@
     $('#ov-body').innerHTML = '';
   }
 
+  /* 往面板上写字之前，先确认那块元素还在文档里。
+     掷骰子、翻牌子转轮、各种延时结算都是一串 setTimeout/setInterval，
+     中途要是被别的弹层顶掉（升级询问、认输、点等级按钮），
+     那些元素已经从 DOM 上摘下来了，直接写 textContent 就是「null 崩」。
+     say() 返回有没有写成，定时器循环靠它决定要不要收工。 */
+  function live(el) { return !!el && (el.isConnected || document.contains(el)); }
+  function say(sel, text) {
+    var el = typeof sel === 'string' ? $(sel) : sel;
+    if (!live(el)) return false;
+    el.textContent = text;
+    return true;
+  }
+
   /* 关掉弹层。
      如果手里还攥着一张没结算的卡（尤其翻牌子转到一半），
      直接关会卡死：转盘按钮还是禁用的，盒子也已经没了。
@@ -662,6 +675,16 @@
     });
   }
 
+  /* 把每个文字反向旋转（转盘角度 + 自己所在的角度），
+     这样无论转盘转到哪儿，字永远朝上，不会倒过来。
+     内层 <b> 用 transform-origin:50% 50%，绕自己中心转，所以不受字数影响。 */
+  function syncLabels() {
+    $$('#mw .mw-lb').forEach(function (lb) {
+      var b = lb.firstChild;
+      if (b) b.style.transform = 'rotate(' + (-(+lb.dataset.mid + spinDeg)).toFixed(2) + 'deg)';
+    });
+  }
+
   function paintWheel() {
     var segs = layout();
     var stops = segs.map(function (g) {
@@ -670,9 +693,53 @@
     var el = $('#mw');
     el.style.background = 'conic-gradient(' + stops + ')';
     el.innerHTML = segs.map(function (g) {
-      return '<span style="transform:rotate(' + g.mid.toFixed(2) + 'deg) translateY(-76px) rotate('
-        + (-g.mid).toFixed(2) + 'deg) translate(-50%,-50%)">' + esc(g.s.n) + '</span>';
+      return '<span class="mw-lb" data-mid="' + g.mid.toFixed(2) + '" style="transform:rotate('
+        + g.mid.toFixed(2) + 'deg) translateY(-76px) translate(-50%,-50%)"><b>'
+        + esc(g.s.n) + '</b></span>';
     }).join('');
+    syncLabels();
+  }
+
+  /* 把 cubic-bezier 求值搬到 JS 里。
+     音效要和转盘用同一条缓动曲线，否则听起来就是「匀速哒哒哒」。 */
+  function cubicBezier(x1, y1, x2, y2) {
+    function A(a, b) { return 1 - 3 * b + 3 * a; }
+    function B(a, b) { return 3 * b - 6 * a; }
+    function C(a) { return 3 * a; }
+    function calc(t, a, b) { return ((A(a, b) * t + B(a, b)) * t + C(a)) * t; }
+    function slope(t, a, b) { return 3 * A(a, b) * t * t + 2 * B(a, b) * t + C(a); }
+    return function (x) {
+      if (x <= 0) return 0;
+      if (x >= 1) return 1;
+      var t = x;
+      for (var i = 0; i < 8; i++) {
+        var dx = calc(t, x1, x2) - x;
+        if (Math.abs(dx) < 1e-5) break;
+        var s = slope(t, x1, x2);
+        if (Math.abs(s) < 1e-6) break;
+        t -= dx / s;
+      }
+      t = Math.max(0, Math.min(1, t));
+      return calc(t, y1, y2);
+    };
+  }
+
+  /* 缓动和时长直接从 CSS 变量里读（--spin-dur / --spin-ease）。
+     转盘的 CSS 用的也是这两个值，所以音效和转盘永远是同一条曲线，
+     绝不会出现「画面已经慢下来、音效还在匀速哒哒哒」。 */
+  function cssNums(name, n) {
+    var raw = '';
+    try { raw = getComputedStyle(document.documentElement).getPropertyValue(name) || ''; } catch (e) {}
+    var hits = raw.match(/-?\d*\.?\d+/g);
+    return hits && hits.length === n ? hits.map(Number) : null;
+  }
+  function cssMs(name, fallback) {
+    var raw = '';
+    try { raw = getComputedStyle(document.documentElement).getPropertyValue(name) || ''; } catch (e) {}
+    var m = /(-?\d*\.?\d+)\s*(ms|s)\b/.exec(raw);
+    if (!m) return fallback;
+    var v = parseFloat(m[1]);
+    return m[2] === 's' ? v * 1000 : v;
   }
 
   function showSpin() {
@@ -825,100 +892,252 @@
     buzz(60);
   }
 
-  /* 翻牌子：动作和部位都用滑动选择 */
+  /* ─────────── 滚轮选择器 ───────────
+     手机定闹钟选时间的那种手感：按住上下拖、带惯性滑行、松手吸附到整格；
+     中间那格自动加粗放大变白，两边按圆柱面倾斜并渐隐。
+     pos 是「第几格」的连续值，只有松手后才取整。 */
+  var DRUM_H = 44;          // 一格的高度，和 CSS 里的 .drum-it 必须一致
+  var DRUM_FAR = 2.3;       // 离中间超过这么多格就干脆不画
+  var DRUM_MOUSE = null;    // 当前被按住的滚轮
+
+  function nextFrame(fn) {
+    return window.requestAnimationFrame
+      ? window.requestAnimationFrame(fn)
+      : setTimeout(function () { fn(Date.now()); }, 16);
+  }
+  function stopFrame(id) {
+    if (id === null || id === undefined) return;
+    if (window.cancelAnimationFrame) window.cancelAnimationFrame(id);
+    else clearTimeout(id);
+  }
+
+  /* 拖出滚轮外面也还要跟手，所以 move/up 挂在整个 document 上。
+     只挂一次，靠 DRUM_MOUSE 分发到当前那个滚轮。 */
+  function wireDrumDrag() {
+    if (wireDrumDrag.done) return;
+    wireDrumDrag.done = true;
+    function mv(y) { if (DRUM_MOUSE) DRUM_MOUSE.move(y); }
+    function up() { if (DRUM_MOUSE) { DRUM_MOUSE.end(); DRUM_MOUSE = null; } }
+    document.addEventListener('mousemove', function (e) {
+      if (!DRUM_MOUSE) return;
+      if (e.preventDefault) e.preventDefault();
+      mv(e.clientY);
+    });
+    document.addEventListener('mouseup', up);
+    document.addEventListener('touchmove', function (e) {
+      if (!DRUM_MOUSE || !e.touches || !e.touches[0]) return;
+      if (e.preventDefault) e.preventDefault();
+      mv(e.touches[0].clientY);
+    }, { passive: false });
+    document.addEventListener('touchend', up);
+    document.addEventListener('touchcancel', up);
+  }
+
+  function makeDrum(box, list, onPick) {
+    wireDrumDrag();
+    var N = list.length, IT = DRUM_H;
+    var reel = box.querySelector('.drum-reel');
+    var its = Array.prototype.slice.call(box.querySelectorAll('.drum-it'));
+    var raw = 0, vel = 0, target = 0, mode = 'idle', frame = null;
+    var downY = 0, downRaw = 0, lastRaw = 0, lastT = 0;
+    var shown = 0, wheelT = 0, moved = 0, noClick = false;
+
+    reel.style.height = (N * IT) + 'px';
+    its.forEach(function (el, i) { el.style.top = (i * IT) + 'px'; });
+
+    function near(p) { return Math.max(0, Math.min(N - 1, Math.round(p))); }
+    function soft(p) {                      // 拖到头再拖，用橡皮筋阻尼
+      if (p < 0) return p * 0.32;
+      if (p > N - 1) return (N - 1) + (p - (N - 1)) * 0.32;
+      return p;
+    }
+
+    /* 选中项一变就报出去：更新模型、刷新确定按钮、响一记很轻的哒 */
+    function pick(i) {
+      if (i === shown) return;
+      shown = i;
+      onPick(i);
+      beep(1400, 0.012, 'square');
+    }
+
+    function paint() {
+      var p = soft(raw);
+      reel.style.transform = 'translate3d(0,' + ((box.clientHeight - IT) / 2 - p * IT).toFixed(2) + 'px,0)';
+      var sel = near(raw);
+      for (var i = 0; i < N; i++) {
+        var el = its[i], d = i - p, a = Math.abs(d);
+        if (a > DRUM_FAR) { if (el.style.display !== 'none') el.style.display = 'none'; continue; }
+        if (el.style.display === 'none') el.style.display = '';
+        var tilt = Math.max(-70, Math.min(70, d * 24));
+        el.style.transform = 'rotateX(' + (-tilt).toFixed(2) + 'deg) scale('
+          + Math.max(0.58, 1 - a * 0.2).toFixed(3) + ')';
+        el.style.opacity = Math.max(0, 1 - a * 0.42).toFixed(2);
+        el.classList.toggle('sel', i === sel);
+      }
+      pick(sel);
+    }
+
+    function stop() { stopFrame(frame); frame = null; }
+    function start() { stop(); frame = nextFrame(loop); }
+
+    function loop() {
+      frame = null;
+      if (!live(box)) return;          // 面板被换掉了，滚轮自己停下来
+      if (mode === 'flick') {
+        // 惯性滑行：每帧衰减，快到慢，最后自己停 —— 和转盘那条缓动一个味道
+        raw += vel * 16;
+        vel *= 0.938;
+        if (raw < 0 || raw > N - 1) {
+          raw = Math.max(0, Math.min(N - 1, raw));
+          vel = 0; target = near(raw); mode = 'snap';
+        } else if (Math.abs(vel) < 0.0016) {
+          vel = 0; target = near(raw); mode = 'snap';
+        }
+      } else if (mode === 'snap') {
+        var d = target - raw;
+        if (Math.abs(d) < 0.002) { raw = target; mode = 'idle'; paint(); return; }
+        raw += d * 0.26;
+      } else {
+        return;
+      }
+      paint();
+      frame = nextFrame(loop);
+    }
+
+    /* 拖出界先收回正常范围，再决定往哪一格吸 */
+    function goto(i) {
+      target = Math.max(0, Math.min(N - 1, i));
+      raw = Math.max(0, Math.min(N - 1, soft(raw)));
+      vel = 0; mode = 'snap';
+      start();
+    }
+    function nudge(dir) {
+      goto(mode === 'snap' ? target + dir : near(raw) + dir);
+    }
+
+    function down(y) {
+      stop();
+      mode = 'drag';
+      downY = y;
+      downRaw = lastRaw = raw;
+      lastT = Date.now();
+      vel = 0; moved = 0;
+      box.classList.add('dragging');
+    }
+    function move(y) {
+      if (mode !== 'drag') return;
+      var now = Date.now();
+      raw = downRaw + (downY - y) / IT;          // 往上拖 = 看后面的
+      if (Math.abs(y - downY) > moved) moved = Math.abs(y - downY);
+      var dt = now - lastT;
+      // 速度是「格 / 毫秒」。往上拖 raw 变大，速度就得是正的，
+      // 否则一松手惯性会往回甩（这个符号写反过，甩回第一格）。
+      if (dt > 0) vel = vel * 0.55 + ((raw - lastRaw) / dt) * 0.45;
+      lastRaw = raw; lastT = now;
+      paint();
+    }
+    function end() {
+      if (mode !== 'drag') return;
+      box.classList.remove('dragging');
+      // 手指/鼠标松开之后浏览器还会补一个 click。刚才是拖着走的，那个 click 不能算数，
+      // 但也不能永久禁掉——留一小段时间窗口，过了就恢复正常点击。
+      if (moved > 6) {
+        noClick = true;
+        setTimeout(function () { noClick = false; }, 260);
+      }
+      // 松手前已经停住超过 120ms，就当没甩，直接吸附
+      if (Date.now() - lastT > 120 || Math.abs(vel) < 0.0012 || raw < 0 || raw > N - 1) {
+        vel = 0; target = near(raw); mode = 'snap';
+      } else {
+        // 上限 0.018 格/毫秒，甩到底大约滑 4 格，不会一路撞到列表尽头
+        vel = Math.max(-0.018, Math.min(0.018, vel));
+        mode = 'flick';
+      }
+      start();
+    }
+
+    var api = { move: move, end: end, nudge: nudge };
+    box.addEventListener('mousedown', function (e) {
+      if (e.button) return;
+      if (e.preventDefault) e.preventDefault();
+      down(e.clientY);
+      DRUM_MOUSE = api;
+    });
+    box.addEventListener('touchstart', function (e) {
+      if (!e.touches || !e.touches[0]) return;
+      down(e.touches[0].clientY);
+      DRUM_MOUSE = api;
+    }, { passive: true });
+    box.addEventListener('wheel', function (e) {
+      if (e.preventDefault) e.preventDefault();
+      var now = Date.now();
+      if (now - wheelT < 55) return;             // 触控板一次滑动会连发一大串
+      wheelT = now;
+      nudge(e.deltaY > 0 ? 1 : -1);
+    }, { passive: false });
+    its.forEach(function (el, i) {
+      el.addEventListener('click', function (e) {
+        // 刚才是拖着走的（浏览器会给一次 click），不能当成「点了这一格」
+        if (noClick) return;
+        if (e.clientY && Math.abs(e.clientY - downY) > 6) return;
+        goto(i);
+      });
+    });
+
+    // 打开就先落在第一格上，中间那格永远不会是空的
+    onPick(0);
+    paint();
+    return api;
+  }
+
+  /* 翻牌子：动作和部位都用滚轮选 */
   function ultimateSlotSpec() {
     var acts = slotList('act'), parts = slotList('part');
-    var pickAct = null, pickPart = null;
-    $('#ult-sub').innerHTML = '由 <b>' + esc(otherN()) + '</b> 滑着选，给 <b>' + esc(selfN()) + '</b>。';
-    var h = '<p class="spec-h">动作　<span class="sw-hint">点箭头、直接拖，或者左右滑</span></p>';
-    h += '<div class="sw-row">';
-    h += '<button class="sw-arrow" data-for="sw-act" data-dir="-1" aria-label="上一个">◀</button>';
-    h += '<div class="swipe" id="sw-act">';
-    acts.forEach(function (a, i) { h += '<button data-a="' + i + '">' + esc(a.x) + '</button>'; });
-    h += '</div>';
-    h += '<button class="sw-arrow" data-for="sw-act" data-dir="1" aria-label="下一个">▶</button>';
-    h += '</div>';
+    var pickAct = 0, pickPart = 0;
+    $('#ult-sub').innerHTML = '由 <b>' + esc(otherN()) + '</b> 滚着选，给 <b>' + esc(selfN()) + '</b>。';
 
-    h += '<p class="spec-h">部位　<span class="sw-hint">点箭头、直接拖，或者左右滑</span></p>';
-    h += '<div class="sw-row">';
-    h += '<button class="sw-arrow" data-for="sw-part" data-dir="-1" aria-label="上一个">◀</button>';
-    h += '<div class="swipe" id="sw-part">';
-    parts.forEach(function (p, i) { h += '<button data-p="' + i + '">' + esc(p.x) + '</button>'; });
-    h += '</div>';
-    h += '<button class="sw-arrow" data-for="sw-part" data-dir="1" aria-label="下一个">▶</button>';
-    h += '</div>';
+    function wheel(id, label, list) {
+      var h = '<div class="drum-row">';
+      h += '<p class="spec-h">' + label + '　<span class="sw-hint">上下拖、滚轮，或者点箭头</span></p>';
+      h += '<div class="drum-wrap">';
+      h += '<div class="drum" id="' + id + '">';
+      h += '<div class="drum-band"></div>';
+      h += '<div class="drum-reel">';
+      list.forEach(function (it, i) {
+        h += '<button class="drum-it" data-i="' + i + '">' + esc(it.x) + '</button>';
+      });
+      h += '</div></div>';
+      h += '<div class="drum-btns">';
+      h += '<button class="drum-arrow" data-for="' + id + '" data-dir="-1" aria-label="上一个">▲</button>';
+      h += '<button class="drum-arrow" data-for="' + id + '" data-dir="1" aria-label="下一个">▼</button>';
+      h += '</div></div></div>';
+      return h;
+    }
 
-    h += '<button class="btn primary" id="u-go" disabled>确定</button>';
+    var h = wheel('drum-act', '动作', acts) + wheel('drum-part', '部位', parts);
+    h += '<button class="btn primary" id="u-go"></button>';
     h += '<button class="btn ghost" id="u-back">换一种模式</button>';
     $('#ult-body').innerHTML = h;
 
     function refresh() {
-      var ok2 = pickAct !== null && pickPart !== null;
-      $('#u-go').disabled = !ok2;
-      $('#u-go').textContent = ok2
-        ? '确定：' + selfN() + ' ' + acts[pickAct].x + ' ' + otherN() + ' 的' + parts[pickPart].x
-        : '确定';
+      // 滚轮还在转的时候面板可能就被确定 / 换模式 / 别的弹层顶掉了，
+      // 那 #u-go 就没了，这时候不能再往上写
+      var go = $('#u-go');
+      if (!go) return;
+      go.disabled = false;
+      go.textContent = '确定：' + selfN() + ' ' + acts[pickAct].x + ' ' + otherN() + ' 的' + parts[pickPart].x;
     }
 
-    /* 左右箭头：鼠标也能用。按一格宽度滚动，滚完由 onscroll 吸附并选中 */
-    function step(box) {
-      var first = box.querySelector('button');
-      return (first && first.offsetWidth ? first.offsetWidth : 88) + 9;
-    }
-    function nudge(box, dir) {
-      var dx = dir * step(box);
-      if (box.scrollBy) box.scrollBy({ left: dx, behavior: 'smooth' });
-      else box.scrollLeft += dx;
-    }
-    function syncArrows(id) {
-      var box = $('#' + id);
-      if (!box) return;
-      var max = box.scrollWidth - box.clientWidth;
-      $$('#ult-body .sw-arrow[data-for="' + id + '"]').forEach(function (a) {
-        var dir = +a.dataset.dir;
-        a.disabled = max <= 1 ? false : (dir < 0 ? box.scrollLeft <= 1 : box.scrollLeft >= max - 1);
-      });
-    }
+    var da = makeDrum($('#drum-act'), acts, function (i) { pickAct = i; refresh(); });
+    var dp = makeDrum($('#drum-part'), parts, function (i) { pickPart = i; refresh(); });
 
-    function wire(id, list, key, set) {
-      var box = $('#' + id);
-      var btns = $$('#' + id + ' button');
-      btns.forEach(function (b) {
-        b.onclick = function () {
-          set(+b.dataset[key]);
-          btns.forEach(function (x) { x.classList.remove('on'); });
-          b.classList.add('on');
-          beep(660, 0.05, 'square');
-          refresh();
-          // 滚到中间只是好看，失败了也绝不能影响选中
-          try { if (b.scrollIntoView) b.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); } catch (e) {}
-        };
-      });
-      // 滑动停下来时，把最靠中间的那个选中
-      var t = null;
-      box.onscroll = function () {
-        syncArrows(id);
-        clearTimeout(t);
-        t = setTimeout(function () {
-          var mid = box.scrollLeft + box.clientWidth / 2, best = 0, bd = 1e9;
-          btns.forEach(function (b, i) {
-            var c = b.offsetLeft + b.offsetWidth / 2, d = Math.abs(c - mid);
-            if (d < bd) { bd = d; best = i; }
-          });
-          btns.forEach(function (x) { x.classList.remove('on'); });
-          btns[best].classList.add('on');
-          set(best); refresh();
-        }, 130);
+    $$('#ult-body .drum-arrow').forEach(function (a) {
+      a.onclick = function () {
+        (a.dataset.for === 'drum-act' ? da : dp).nudge(+a.dataset.dir);
       };
-      syncArrows(id);
-    }
-
-    $$('#ult-body .sw-arrow').forEach(function (a) {
-      a.onclick = function () { nudge($('#' + a.dataset.for), +a.dataset.dir); };
     });
+    refresh();
 
-    wire('sw-act', acts, 'a', function (i) { pickAct = i; });
-    wire('sw-part', parts, 'p', function (i) { pickPart = i; });
     $('#u-back').onclick = ultTypeStep;
     $('#u-go').onclick = function () {
       var c = {
@@ -943,17 +1162,46 @@
               : (roll < REVERSE_P + LUCKY_P ? 'lucky' : null);
 
     var need = (360 - hit.mid) % 360;
+    var startR = spinDeg;
     var target = spinDeg - (spinDeg % 360) + need;
     while (target <= spinDeg + 360 * 3) target += 360;
     spinDeg = target;
     $('#mw').style.transform = 'rotate(' + target + 'deg)';
+    syncLabels();                       // 文字反向转，和转盘共用同一条缓动
     $('#mw-say').textContent = '……';
     $('#mw-say').className = 'mw-say';
-    beep(300, 0.4, 'sawtooth');
-    var n = 0, iv = setInterval(function () { beep(1200, 0.015, 'square'); if (++n > 34) clearInterval(iv); }, 105);
+    beep(260, 0.35, 'sawtooth');
 
-    setTimeout(function () {
-      clearInterval(iv);
+    /* 音效不再匀速：按转盘实际转过几格来响。
+       转得快就密、音高就高，慢下来就稀、音就低，最后自然停。
+       曲线和时长都是从 CSS 变量里读的，跟转盘一模一样。 */
+    var DUR = cssMs('--spin-dur', 4000);
+    var be = cssNums('--spin-ease', 4) || [0.22, 1, 0.36, 1];
+    var EASE = cubicBezier(be[0], be[1], be[2], be[3]);
+    var per = 360 / SECTORS.length;
+    var lastIdx = Math.floor(startR / per);
+    var t0 = null;
+    var raf = window.requestAnimationFrame
+      ? window.requestAnimationFrame.bind(window)
+      : function (fn) { setTimeout(function () { fn(Date.now()); }, 16); };
+
+    function frame(now) {
+      if (t0 === null) t0 = now;
+      var p = Math.min(1, (now - t0) / DUR);
+      var e = EASE(p);
+      var r = startR + (target - startR) * e;
+      var idx = Math.floor(r / per);
+      if (idx !== lastIdx) {
+        var ePrev = EASE(Math.max(0, p - 0.03));
+        var speed = Math.abs((e - ePrev) * (target - startR)) / (DUR * 0.03);   // 度/毫秒
+        beep(560 + Math.min(1, speed / 1.2) * 900, 0.016, 'square');
+        lastIdx = idx;
+      }
+      if (p < 1) { raf(frame); return; }
+      setTimeout(land, 70);
+    }
+
+    function land() {
       $('#mw-say').textContent = hit.s.n;
       chord([659, 880]); buzz(50);
 
@@ -982,7 +1230,9 @@
           }
         }, 1100);
       }, 700);
-    }, 4000);
+    }
+
+    raf(frame);
   }
 
   /* 第二步：挑盒子抽卡 */
@@ -1070,14 +1320,17 @@
     var spinning = { act: false, part: false };
 
     function render() {
+      // 面板可能已经被顶掉了（转到一半被别的弹层打断），那就什么都别写
+      var s = $('#slot-say');
+      if (!live(s)) return;
       if (got.act && got.part) {
-        $('#slot-say').innerHTML = '<b>' + esc(selfN()) + '</b>　' + esc(got.act)
+        s.innerHTML = '<b>' + esc(selfN()) + '</b>　' + esc(got.act)
           + '　<b>' + esc(otherN()) + '</b>的' + esc(got.part);
         hide($('#slot-done'), false);
         hide($('#slot-again'), false);
         chord([659, 880]); buzz(40);
       } else if (got.act || got.part) {
-        $('#slot-say').textContent = got.act ? '还要翻部位' : '还要翻动作';
+        s.textContent = got.act ? '还要翻部位' : '还要翻动作';
       }
     }
 
@@ -1087,6 +1340,7 @@
       var final = slotPick(list);
       var el = $('#reel-' + which);
       var btn = $('#spin-' + which);
+      if (!el || !btn) return;
       spinning[which] = true;
       btn.disabled = true;
       el.classList.add('rolling');
@@ -1095,14 +1349,17 @@
 
       var t = 0, delay = 45, total = 1150 + rnd(450);
       (function step() {
-        el.querySelector('span').textContent = slotPick(list).x;
+        // 转轮自己也是个定时器，中途面板没了就停，别再往上写
+        var sp = el.querySelector('span');
+        if (!sp || !live(el)) return;
+        sp.textContent = slotPick(list).x;
         beep(1400, 0.012, 'square');
         t += delay;
         if (t < total * 0.55) delay = 45;
         else if (t < total * 0.8) delay = 95;
         else delay = 165;
         if (t < total) { setTimeout(step, delay); return; }
-        el.querySelector('span').textContent = final.x;
+        sp.textContent = final.x;
         el.classList.remove('rolling');
         el.classList.add('landed');
         setTimeout(function () { el.classList.remove('landed'); }, 400);
@@ -1157,31 +1414,42 @@
     var b = $('#roll');
     if (!b || b.disabled) return;
     b.disabled = true;
-    $('#d0').classList.add('roll'); $('#d1').classList.add('roll');
+    var d0 = $('#d0'), d1 = $('#d1');
+    d0.classList.add('roll'); d1.classList.add('roll');
     var n = 0, iv = setInterval(function () {
-      $('#f0').textContent = FACE[rnd(6)] + ' ' + FACE[rnd(6)];
-      $('#f1').textContent = FACE[rnd(6)] + ' ' + FACE[rnd(6)];
+      // 面板被别的弹层顶掉了就收工——不然接下来每一拍都会往 null 上写
+      if (!say('#f0', FACE[rnd(6)] + ' ' + FACE[rnd(6)])) { clearInterval(iv); return; }
+      say('#f1', FACE[rnd(6)] + ' ' + FACE[rnd(6)]);
       beep(900, 0.015, 'square');
       if (++n > 11) {
         clearInterval(iv);
         var a = 1 + rnd(6), a2 = 1 + rnd(6), c = 1 + rnd(6), c2 = 1 + rnd(6);
-        $('#d0').classList.remove('roll'); $('#d1').classList.remove('roll');
-        $('#f0').textContent = FACE[a - 1] + ' ' + FACE[a2 - 1];
-        $('#f1').textContent = FACE[c - 1] + ' ' + FACE[c2 - 1];
+        if (!say('#f0', FACE[a - 1] + ' ' + FACE[a2 - 1])) return;
+        say('#f1', FACE[c - 1] + ' ' + FACE[c2 - 1]);
         var ta = a + a2, tb = c + c2;
-        $('#p0').textContent = ta; $('#p1').textContent = tb;
+        say('#p0', ta); say('#p1', tb);
+        live(d0) && d0.classList.remove('roll');
+        live(d1) && d1.classList.remove('roll');
         setTimeout(function () {
+          if (!live($('#dsay'))) return;          // 面板已经不在了，别动后面的回合
           if (ta === tb) {
             $('#dsay').textContent = '平手，两个人一起做';
             chord([523, 659, 784]);
-            setTimeout(function () { shut(); setTurn(0); toBox('duo'); }, 1000);
+            setTimeout(function () {
+              if (!live($('#dsay'))) return;
+              shut(); setTurn(0); toBox('duo');
+            }, 1000);
           } else {
             var lose = ta < tb ? 0 : 1;
-            $('#d' + lose).classList.add('lose');
-            $('#d' + (1 - lose)).classList.add('win');
+            var dl = $('#d' + lose), dw = $('#d' + (1 - lose));
+            if (dl) dl.classList.add('lose');
+            if (dw) dw.classList.add('win');
             $('#dsay').textContent = S.names[lose] + ' 输了';
             buzz(110);
-            setTimeout(function () { shut(); setTurn(lose); toBox('punish'); }, 1000);
+            setTimeout(function () {
+              if (!live($('#dsay'))) return;
+              shut(); setTurn(lose); toBox('punish');
+            }, 1000);
           }
         }, 240);
       }
