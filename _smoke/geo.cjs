@@ -131,8 +131,11 @@ const DRUM_JS = (id) => `
 `;
 
 (async () => {
-  const srv = await serve();
-  const base = 'http://127.0.0.1:' + srv.address().port;
+  // 传一个地址就验线上那份，不传就在本地起个静态服务器验工作区
+  const LIVE = process.argv[2] || null;
+  const srv = LIVE ? null : await serve();
+  const base = LIVE || 'http://127.0.0.1:' + srv.address().port;
+  console.log('验的是：' + base);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-geo-'));
   const chrome = spawn(CHROME, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -251,7 +254,7 @@ const DRUM_JS = (id) => `
   CK(Math.abs(dragged.items[dsel].mid) < 1, '松手后自动吸附回正中（偏 ' + dragged.items[dsel].mid + 'px）');
   CK(dragged.items.filter(i => i.sel).length === 1, '拖完还是只有一格选中');
 
-  cdp.ws.close(); chrome.kill(); srv.close();
+  cdp.ws.close(); chrome.kill(); if (srv) srv.close();
   await wait(300);
   try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) {}
   console.log('\n' + (fails ? '❌ 有 ' + fails + ' 项不对' : '✅ 全对'));
