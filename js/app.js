@@ -897,7 +897,8 @@
      中间那格自动加粗放大变白，两边按圆柱面倾斜并渐隐。
      pos 是「第几格」的连续值，只有松手后才取整。 */
   var DRUM_H = 44;          // 一格的高度，和 CSS 里的 .drum-it 必须一致
-  var DRUM_FAR = 2.3;       // 离中间超过这么多格就干脆不画
+  var DRUM_ROWS = 3;        // 人眼只看到三行：中间一行 + 上下一行
+  var DRUM_FAR = 1.5;       // 离中间超过这么多格就不画（透明度正好在 1.5 处归零）
   var DRUM_MOUSE = null;    // 当前被按住的滚轮
 
   function nextFrame(fn) {
@@ -941,15 +942,18 @@
     var raw = 0, vel = 0, target = 0, mode = 'idle', frame = null;
     var downY = 0, downRaw = 0, lastRaw = 0, lastT = 0;
     var shown = 0, wheelT = 0, moved = 0, noClick = false;
+    var pos = [];                       // 每个词当前摆在第几格（循环时会往前/往后借一格）
 
-    reel.style.height = (N * IT) + 'px';
-    its.forEach(function (el, i) { el.style.top = (i * IT) + 'px'; });
+    reel.style.height = '100%';
 
-    function near(p) { return Math.max(0, Math.min(N - 1, Math.round(p))); }
-    function soft(p) {                      // 拖到头再拖，用橡皮筋阻尼
-      if (p < 0) return p * 0.32;
-      if (p > N - 1) return (N - 1) + (p - (N - 1)) * 0.32;
-      return p;
+    /* 循环滚轮的核心：每个词都可能出现在「往前一份」或「往后一份」的位置上，
+       永远挑离中间最近的那一份来摆。所以滚到最上面再往上，接的是最末尾。
+       raw 是连续的第几格，可以是负数、也可以超过 N，全部按 N 取模理解。 */
+    function norm(p) { var i = p % N; return i < 0 ? i + N : i; }
+    function near(p) { return Math.round(norm(p)) % N; }
+    function shortest(d) {              // 要走到某个词，是往前近还是往后近
+      var x = norm(d);
+      return x > N / 2 ? x - N : x;
     }
 
     /* 选中项一变就报出去：更新模型、刷新确定按钮、响一记很轻的哒 */
@@ -961,17 +965,25 @@
     }
 
     function paint() {
-      var p = soft(raw);
-      reel.style.transform = 'translate3d(0,' + ((box.clientHeight - IT) / 2 - p * IT).toFixed(2) + 'px,0)';
+      var H = box.clientHeight || IT * 3;
+      reel.style.transform = 'translate3d(0,' + ((H - IT) / 2 - raw * IT).toFixed(2) + 'px,0)';
       var sel = near(raw);
       for (var i = 0; i < N; i++) {
-        var el = its[i], d = i - p, a = Math.abs(d);
-        if (a > DRUM_FAR) { if (el.style.display !== 'none') el.style.display = 'none'; continue; }
+        var el = its[i];
+        var slot = i + N * Math.round((raw - i) / N);   // 这一份摆在第几格
+        var d = slot - raw, a = Math.abs(d);
+        if (a > DRUM_FAR) {
+          if (el.style.display !== 'none') el.style.display = 'none';
+          continue;
+        }
         if (el.style.display === 'none') el.style.display = '';
-        var tilt = Math.max(-70, Math.min(70, d * 24));
+        if (pos[i] !== slot) { pos[i] = slot; el.style.top = (slot * IT) + 'px'; }
+        var tilt = Math.max(-60, Math.min(60, d * 22));
         el.style.transform = 'rotateX(' + (-tilt).toFixed(2) + 'deg) scale('
-          + Math.max(0.58, 1 - a * 0.2).toFixed(3) + ')';
-        el.style.opacity = Math.max(0, 1 - a * 0.42).toFixed(2);
+          + Math.max(0.7, 1 - a * 0.2).toFixed(3) + ')';
+        // 透明度正好在「被上沿切掉」的位置归零，所以不会看到半截字被硬切
+        var op = 1 - Math.pow(a / DRUM_FAR, 2);
+        el.style.opacity = (op > 0 ? op : 0).toFixed(3);
         el.classList.toggle('sel', i === sel);
       }
       pick(sel);
@@ -984,18 +996,19 @@
       frame = null;
       if (!live(box)) return;          // 面板被换掉了，滚轮自己停下来
       if (mode === 'flick') {
-        // 惯性滑行：每帧衰减，快到慢，最后自己停 —— 和转盘那条缓动一个味道
+        // 惯性滑行：每帧衰减，快到慢，最后自己停 —— 和转盘那条缓动一个味道。
+        // 循环滚轮没有尽头，所以这里不需要任何边界判断。
         raw += vel * 16;
         vel *= 0.938;
-        if (raw < 0 || raw > N - 1) {
-          raw = Math.max(0, Math.min(N - 1, raw));
-          vel = 0; target = near(raw); mode = 'snap';
-        } else if (Math.abs(vel) < 0.0016) {
-          vel = 0; target = near(raw); mode = 'snap';
+        if (Math.abs(vel) < 0.0016) {
+          vel = 0; target = Math.round(raw); mode = 'snap';
         }
       } else if (mode === 'snap') {
         var d = target - raw;
-        if (Math.abs(d) < 0.002) { raw = target; mode = 'idle'; paint(); return; }
+        if (Math.abs(d) < 0.002) {
+          raw = norm(target);            // 停下来之后把位置收回 0..N，免得数字越滚越大
+          target = raw; mode = 'idle'; paint(); return;
+        }
         raw += d * 0.26;
       } else {
         return;
@@ -1004,15 +1017,14 @@
       frame = nextFrame(loop);
     }
 
-    /* 拖出界先收回正常范围，再决定往哪一格吸 */
+    /* 走去某个词，按最近的那条路走（可以往前绕，也可以往后绕） */
     function goto(i) {
-      target = Math.max(0, Math.min(N - 1, i));
-      raw = Math.max(0, Math.min(N - 1, soft(raw)));
+      target = raw + shortest(i - raw);
       vel = 0; mode = 'snap';
       start();
     }
     function nudge(dir) {
-      goto(mode === 'snap' ? target + dir : near(raw) + dir);
+      goto(near(raw) + dir);
     }
 
     function down(y) {
@@ -1027,7 +1039,7 @@
     function move(y) {
       if (mode !== 'drag') return;
       var now = Date.now();
-      raw = downRaw + (downY - y) / IT;          // 往上拖 = 看后面的
+      raw = downRaw + (downY - y) / IT;          // 往上拖 = 看后面的，拖过头就绕回来
       if (Math.abs(y - downY) > moved) moved = Math.abs(y - downY);
       var dt = now - lastT;
       // 速度是「格 / 毫秒」。往上拖 raw 变大，速度就得是正的，
@@ -1046,10 +1058,10 @@
         setTimeout(function () { noClick = false; }, 260);
       }
       // 松手前已经停住超过 120ms，就当没甩，直接吸附
-      if (Date.now() - lastT > 120 || Math.abs(vel) < 0.0012 || raw < 0 || raw > N - 1) {
-        vel = 0; target = near(raw); mode = 'snap';
+      if (Date.now() - lastT > 120 || Math.abs(vel) < 0.0012) {
+        vel = 0; target = Math.round(raw); mode = 'snap';
       } else {
-        // 上限 0.018 格/毫秒，甩到底大约滑 4 格，不会一路撞到列表尽头
+        // 上限 0.018 格/毫秒，甩到底大约滑 4 格
         vel = Math.max(-0.018, Math.min(0.018, vel));
         mode = 'flick';
       }
@@ -1085,6 +1097,7 @@
     });
 
     // 打开就先落在第一格上，中间那格永远不会是空的
+    its.forEach(function (el, i) { pos[i] = i; el.style.top = (i * IT) + 'px'; });
     onPick(0);
     paint();
     return api;

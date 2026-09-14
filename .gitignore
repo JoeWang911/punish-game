@@ -1,5 +1,7 @@
 _smoke/node_modules/
 _smoke/package-lock.json
 _smoke/shots/
+# 跟 题库.txt 一字不差的副本，别误提交（源只有 题库.txt 一份）
+题库-修改.txt
 .DS_Store
 Thumbs.db

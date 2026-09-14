@@ -120,6 +120,30 @@ const check = (n, c, e) => { if (c) { pass++; console.log('  ✅ ' + n); } else 
     !!bandRule && !!reelRule && Number(bandRule.style.zIndex) < Number(reelRule.style.zIndex),
     (bandRule && bandRule.style.zIndex) + ' vs ' + (reelRule && reelRule.style.zIndex));
 
+  // 滚轮的尺寸是三处硬编码对上的，错一个就是一格错位，必须钉死
+  const appSrc = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
+  const itRule = rules.find(r => r.selectorText === '.drum-it');
+  const drumRule = rules.find(r => r.selectorText === '.drum');
+  const jsH = /DRUM_H\s*=\s*(\d+)/.exec(appSrc);
+  const jsRows = /DRUM_ROWS\s*=\s*(\d+)/.exec(appSrc);
+  const itH = itRule ? parseFloat(itRule.style.height) : NaN;
+  const drumH = drumRule ? parseFloat(drumRule.style.height) : NaN;
+  check('JS 里写了格高和行数', !!jsH && !!jsRows, (jsH && jsH[1]) + ' / ' + (jsRows && jsRows[1]));
+  check('.drum-it 的高度和 JS 的 DRUM_H 一致（' + itH + ' vs ' + (jsH && jsH[1]) + '）',
+    !!jsH && itH === Number(jsH[1]), itH + ' vs ' + (jsH && jsH[1]));
+  check('滚轮高度正好是 ' + (jsRows && jsRows[1]) + ' 行（' + drumH + ' = ' + (jsRows && jsRows[1]) + ' × ' + itH + '）',
+    !!jsH && !!jsRows && drumH === Number(jsH[1]) * Number(jsRows[1]), drumH + ' vs ' + (itH * (jsRows && jsRows[1])));
+  check('行数是 3（人眼只看到中间一格 + 上下一格）', jsRows && jsRows[1] === '3', jsRows && jsRows[1]);
+  // 循环滚动的词要能摆到框外，所以滚轮本体不能自己裁
+  check('滚轮本体不裁剪（词要能摆到框外，由外层 .drum 负责裁）',
+    !!reelRule && (!reelRule.style.overflow || reelRule.style.overflow === 'visible'),
+    reelRule ? (reelRule.style.overflow || '(默认 visible)') : '(没找到)');
+  check('外层 .drum 负责裁剪', !!drumRule && drumRule.style.overflow === 'hidden',
+    drumRule ? drumRule.style.overflow : '(没找到)');
+  check('滚轮本体不套渐隐遮罩（透明度在 JS 里算，避免半截字被硬切）',
+    !!reelRule && !reelRule.style.maskImage && !reelRule.style.webkitMaskImage,
+    reelRule ? (reelRule.style.maskImage || '无') : '(没找到)');
+
   console.log('\n── 资源 ──');
   check('没有加载失败的资源', errors.filter(e => !/favicon/i.test(e)).length === 0,
     errors.slice(0, 2).join(' | '));

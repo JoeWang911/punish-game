@@ -201,19 +201,23 @@ const DRUM_JS = (id) => `
   CK(Math.abs(sel[0].mid - (d1.band.mid - d1.box.mid)) < 1, '选中那格正好压在选中带上');
   const vis = d1.items.filter(i => i.disp !== 'none');
   console.log('  可见的格：' + vis.map(i => i.text + '[y' + i.mid + ' 缩放' + i.scale + ' 透明' + i.op + ' ' + i.font + '/' + i.weight + ']').join('  '));
+  const above = vis.filter(i => i.mid < -1), below = vis.filter(i => i.mid > 1);
+  CK(vis.length === 3, '人眼正好只看到三格（上 ' + above.length + ' + 中 1 + 下 ' + below.length + ' = ' + vis.length + '）');
+  CK(above.length === 1 && below.length === 1, '上面一格、下面一格，各一个');
+  CK(Math.abs(above[0].mid + d1.box.h / 3) < 2, '上面那格正好卡在上面那一行的位置（y=' + above[0].mid + '）');
+  CK(Math.abs(below[0].mid - d1.box.h / 3) < 2, '下面那格正好卡在下面那一行的位置（y=' + below[0].mid + '）');
+  CK(above[0].h < 44 && below[0].h < 44, '上下那两格被框口切在行内，没露半截（高 ' + above[0].h + ' / ' + below[0].h + '）');
   CK(sel[0].weight === '800' || +sel[0].weight >= 700, '中间那格加粗了（' + sel[0].weight + '）');
   CK(parseFloat(sel[0].font) > Math.max(...vis.filter(i => !i.sel).map(i => parseFloat(i.font))), '中间那格字最大（' + sel[0].font + '）');
   CK(sel[0].op === 1, '中间那格完全不透明');
   CK(sel[0].scale >= Math.max(...vis.filter(i => !i.sel).map(i => i.scale)), '中间那格缩放最大（' + sel[0].scale + '）');
-  CK(vis.filter(i => !i.sel).every(i => i.op < 1), '旁边的格都压暗了（' + vis.filter(i => !i.sel).map(i => i.op).join('/') + '）');
-  const sorted = vis.slice().sort((a, b) => Math.abs(a.mid) - Math.abs(b.mid));
-  CK(sorted.every((x, i) => i === 0 || x.op <= sorted[i - 1].op + 0.01), '越靠边越暗，是个渐变不是一刀切');
-  CK(sorted.every((x, i) => i === 0 || x.scale <= sorted[i - 1].scale + 0.01), '越靠边越小，是个渐变不是一刀切');
-  CK(sorted[0].scale > sorted[sorted.length - 1].scale, '中间最靠里那格比最外圈那格大（' + sorted[0].scale + ' > ' + sorted[sorted.length - 1].scale + '）');
-  CK(sorted.every((x, i) => i === 0 || Math.abs(x.mid) > Math.abs(sorted[i - 1].mid) - 0.01), '每一格的间距都是等分的一格高');
-  CK(d1.items.filter(i => i.disp === 'none').length > 0, '离得远的格直接不画（省性能，一共有 ' + d1.items.filter(i => i.disp === 'none').length + ' 格没画）');
-  console.log('  选中格颜色 ' + sel[0].color + '（旁边是 ' + vis.find(i => !i.sel).color + '）');
-  CK(sel[0].color !== vis.find(i => !i.sel).color, '中间那格换了颜色，和旁边不一样');
+  CK(vis.filter(i => !i.sel).every(i => i.op < 1), '上下那两格都压暗了（' + vis.filter(i => !i.sel).map(i => i.op).join('/') + '）');
+  CK(above[0].op < 0.75 && below[0].op < 0.75, '上下那两格明显比中间浅（' + above[0].op + ' / ' + below[0].op + '）');
+  CK(above[0].scale < 1 && below[0].scale < 1, '上下那两格明显比中间小（' + above[0].scale + ' / ' + below[0].scale + '）');
+  CK(d1.items.filter(i => i.disp === 'none').length === d1.items.length - 3,
+    '除了这三格，别的都没画（没画 ' + d1.items.filter(i => i.disp === 'none').length + ' 格）');
+  console.log('  选中格颜色 ' + sel[0].color + '（上下是 ' + vis.find(i => !i.sel).color + '）');
+  CK(sel[0].color !== vis.find(i => !i.sel).color, '中间那格换了颜色，和上下不一样');
 
   // 点箭头 / 滚轮 / 直接点某一条，三种操作都要能换格
   console.log('\n  · 三种操作都能换格：');
@@ -253,6 +257,28 @@ const DRUM_JS = (id) => `
   CK(dsel <= dragged.items.length - 1, '没被甩飞出去（最远第 ' + (dragged.items.length - 1) + ' 格）');
   CK(Math.abs(dragged.items[dsel].mid) < 1, '松手后自动吸附回正中（偏 ' + dragged.items[dsel].mid + 'px）');
   CK(dragged.items.filter(i => i.sel).length === 1, '拖完还是只有一格选中');
+
+  // ── 循环：滚到最后再往下，接上的应该是第一个 ──
+  console.log('\n  · 循环滚动：');
+  const N = dragged.items.length;
+  const order = [];                       // 记下「往下滚」时中间依次出现的是哪几个词
+  for (let k = 0; k < N + 2; k++) {
+    await cdp.eval('document.querySelectorAll(\'#ult-body .drum-arrow[data-for="drum-act"][data-dir="1"]\')[0].click(); return 1;');
+    await wait(280);
+    const st = JSON.parse(await cdp.eval(DRUM_JS('drum-act')));
+    const s = st.items.find(i => i.sel);
+    order.push(s.text);
+    // 中缝那格必须永远压在选中带上，绕圈也一样
+    if (Math.abs(s.mid) > 1.5) { CK(false, '绕圈时中间那格跑偏了 ' + s.mid + 'px'); }
+  }
+  console.log('    一直往下滚依次出现：' + order.join(' → '));
+  CK(Math.abs(order[N] - order[0]) < 1e-9 || order[N] === order[0], '滚满 ' + N + ' 格正好回到开头那个词');
+  CK(new Set(order.slice(0, N)).size === N, '一圈里 ' + N + ' 个词每个都出现一次，没有卡住或跳过');
+  CK(order[N] === order[0] && order[N + 1] === order[1], '第二圈接着第一圈，接得上（无缝循环）');
+  const back = JSON.parse(await cdp.eval(DRUM_JS('drum-act')));
+  CK(Math.abs(back.items.find(i => i.sel).mid) < 1, '绕了 ' + (N + 2) + ' 格之后，中间那格还在正中（偏 ' +
+    back.items.find(i => i.sel).mid + 'px）');
+  CK(back.items.filter(i => i.disp !== 'none').length === 3, '绕半天之后人眼看到的还是三格');
 
   cdp.ws.close(); chrome.kill(); if (srv) srv.close();
   await wait(300);

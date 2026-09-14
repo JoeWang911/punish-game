@@ -487,7 +487,9 @@ input[type=text]:focus,input[type=password]:focus{
 .drum-wrap{display:flex;align-items:center;gap:10px}
 
 .drum{
-  position:relative;flex:1;min-width:0;height:198px;overflow:hidden;
+  position:relative;flex:1;min-width:0;
+  /* 正好三行：中间选中那行 + 上下一行。和 app.js 里的 DRUM_H / DRUM_ROWS 对应 */
+  height:132px;overflow:hidden;
   border-radius:16px;
   background:rgba(0,0,0,.34);
   border:1px solid var(--line);
@@ -506,12 +508,13 @@ input[type=text]:focus,input[type=password]:focus{
   box-shadow:0 0 0 1px rgba(255,77,126,.4), 0 8px 22px -10px rgba(255,77,126,.8);
 }
 
-/* 滚轮本体：上下两头渐隐，做出圆柱面转过去的感觉 */
+/* 滚轮本体。不套渐隐遮罩：每个词的透明度在 JS 里算，
+   正好在上沿/下沿被切掉的位置降到 0，所以看不到半截字被硬切。
+   循环滚动靠把词摆到「往前一份」或「往后一份」的位置上实现，
+   所以这里不能用 overflow:hidden，让词能摆到框外去。 */
 .drum-reel{
-  position:absolute;left:0;right:0;top:0;z-index:1;perspective:700px;
-  will-change:transform;
-  mask-image:linear-gradient(180deg,rgba(0,0,0,0),#000 30%,#000 70%,rgba(0,0,0,0));
-  -webkit-mask-image:linear-gradient(180deg,rgba(0,0,0,0),#000 30%,#000 70%,rgba(0,0,0,0));
+  position:absolute;left:0;right:0;top:0;z-index:1;height:100%;
+  perspective:700px;will-change:transform;
 }
 
 /* 每一格：又快又静。放大、倾斜、透明度都由 JS 每帧写，所以这里不写 transition */

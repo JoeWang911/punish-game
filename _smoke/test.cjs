@@ -641,11 +641,31 @@ function fakeAudio(w) {
   check('松手之后停在更后面，不会往回甩（0 → ' + up.after + '）', up.after >= up.during && up.after > 0,
     '拖到 ' + up.during + '，松手后 ' + up.after);
 
-  $$5('#drum-act button')[0].click(); await wait(500);
-  const dn = await drag(6, 16);           // 往下划 = 看前面的，已经在第 0 格，只能被弹回来
-  check('往下拖到头的橡皮筋不会失控（停在第 ' + dn.after + ' 格）', dn.after === 0, '实际 ' + dn.after);
-  check('拖完选中项还是只有一格', $$5('#drum-act button.sel').length === 1);
-  check('拖完滚轮还在，没被拖坏', $$5('#drum-act button').length > 0);
+  // ── 循环：滚到头不能停死，要绕到另一头去 ──
+  const actN = $$5('#drum-act button').length;
+  const arrow = dir => $$5('#ult-body .drum-arrow[data-for="drum-act"][data-dir="' + dir + '"]')[0];
+  $$5('#drum-act button')[0].click(); await wait(600);
+  arrow(-1).click(); await wait(700);
+  check('第 0 格再往上，绕到最末尾（0 → ' + selIdx() + '，一共 ' + actN + ' 格）',
+    selIdx() === actN - 1, '实际停在 ' + selIdx());
+  arrow(1).click(); await wait(700);
+  check('最末尾再往下，绕回第 0 格（' + (actN - 1) + ' → ' + selIdx() + '）', selIdx() === 0, '实际停在 ' + selIdx());
+  check('绕过去之后还是只有一格选中', $$5('#drum-act button.sel').length === 1);
+
+  // 连点一整圈，应该正好回到原地（说明每次就是一个词，不多不少）
+  for (let i = 0; i < actN; i++) { arrow(1).click(); await wait(120); }
+  await wait(1200);
+  check('连点 ' + actN + ' 下 ▼ 绕一整圈，正好回到第 0 格（现在是第 ' + selIdx() + ' 格）', selIdx() === 0,
+    '实际 ' + selIdx());
+  check('循环绕完滚轮还在，没被绕坏', $$5('#drum-act button').length === actN);
+
+  // 拖也能绕：从第 0 格往下拖，拖的过程里就该从列表后半段（也就是「上一个」）里出东西。
+  // 松手后还会再惯性滑一段，所以看「拖到哪儿」而不是「最后停在哪儿」。
+  const wrapDrag = await drag(6, 16);
+  check('从第 0 格往下拖，拖的过程里绕到了后半段（第 ' + wrapDrag.during + ' 格，共 ' + actN + ' 格）',
+    wrapDrag.during > actN / 2, '实际拖到 ' + wrapDrag.during);
+  check('松手后落点也是合法的一格（第 ' + wrapDrag.after + ' 格）',
+    wrapDrag.after >= 0 && wrapDrag.after < actN, '实际 ' + wrapDrag.after);
 
   // 拖完把选择拨回上面记下的那两格，后面的流程才对得上
   $$5('#drum-act button')[2].click(); await wait(400);
